@@ -252,6 +252,7 @@ get_EIP <- function(params, temps, iter){
     EIP_10[,i] <- Inv_EIP_CDF(shape_total_S[,i], rate_total_S[,i], mu[,i], k[,i], 0.1)
     EIP_50[,i] <- Inv_EIP_CDF(shape_total_S[,i], rate_total_S[,i], mu[,i], k[,i], 0.5)
     EIP_90[,i] <- Inv_EIP_CDF(shape_total_S[,i], rate_total_S[,i], mu[,i], k[,i], 0.9)
+    
   }
   
   return(list("shape_O" = shape_O, "rate_O" = rate_O, "shape_S" = shape_S, "rate_S" = rate_S, "shape_total_S" = shape_total_S,
@@ -385,12 +386,15 @@ get_EIP_mean <- function(params, temps, iter){
   mean_total_S <- shape_total_S / rate_total_S
   
   EIP_mean <- as.data.frame(matrix(NA, nrow = iter, ncol = length(temps)))
+  EIP_var <- as.data.frame(matrix(NA, nrow = iter, ncol = length(temps)))
   
   for(i in 1:length(temps)){
     EIP_mean[,i] <- v.int_mean_func(shape_total_S[,i], rate_total_S[,i], mu[,i], k[,i])
+    EIP_var[,i] <- v.int_var_func(shape_total_S[,i], rate_total_S[,i], mu[,i], k[,i])
   }
   
-  return(list("EIP_mean" = EIP_mean))
+  return(list("EIP_mean" = EIP_mean,
+              "EIP_var" = EIP_var))
 }
 
 

@@ -452,601 +452,213 @@ multiple_model <- function(t, state, params){
   })
 }
 
-#########################################
-### IC malaria model helper functions ###
-#########################################
+#######################
+##### SMFA models #####
+#######################
 
-# function that creates the list of parameters required for the model with a single mosquito species or multiple species
-# currently infectiousness of treated patients differs - this is updated so it doesn't before running the model
-# comp - number of exposed mosquito compartments - initially set to 10
-# EIP is initially set to 10 days
-model_param_list_create_comp <- function(
-  # age, heterogeneity in exposure,
-  eta = 1/(21*365),
-  rho = 0.85,
-  a0 = 2920,
-  sigma2 = 1.67,
-  max_age = 100*365,
-  #  rate of leaving infection states
-  rA = 1/195,
-  rT = 0.2,
-  rD = 0.2,
-  rU = 1/110.299,
-  rP = 1/15,
-  #  human latent period and time lag from asexual parasites to
-  dE  = 12,
-  delayGam = 12.5,
-  # human infectiousness to mosquitoes
-  cD  = 0.0676909,
-  cT  =  0.322 * cD,
-  cU  = 0.006203,
-  gamma1  = 1.82425,
-  #  Immunity reducing probability of detection
-  d1 = 0.160527,
-  dID = 3650,
-  ID0 = 1.577533,
-  kD = 0.476614,
-  uD = 9.44512,
-  aD = 8001.99,
-  fD0 = 0.007055,
-  gammaD = 4.8183,
-  alphaA = 0.75735,
-  alphaU = 0.185624,
-  # Immunity reducing probability of infection
-  b0 = 0.590076,
-  b1 = 0.5,
-  dB = 3650,
-  IB0 = 43.8787,
-  kB = 2.15506,
-  uB = 7.19919,
-  # Immunity reducing probability of clinical disease
-  phi0 = 0.791666,
-  phi1 = 0.000737,
-  dCA = 10950,
-  IC0 = 18.02366,
-  kC = 2.36949,
-  uCA = 6.06349,
-  PM = 0.774368,
-  dCM = 67.6952,
-  # entomological parameters
-  #delayMos = 10,
-  comp = 10,
-  EIP = 10,
-  tau1 = 0.69,
-  tau2 = 2.31,
-  mu0 = 0.132,
-  Q0 = 0.92,
-  chi = 0.86,
-  bites_Bed = 0.89,
-  bites_Indoors = 0.97,
-  # intervention parameters
-  num_int = 1,
-  itn_cov = 0,
-  irs_cov = 0,
-  ITN_IRS_on = -1,
-  DY = 365,
-  d_ITN0 = 0.41,
-  r_ITN0 = 0.56,
-  r_ITN1 = 0.24,
-  r_IRS0 = 0.6,
-  d_IRS0 = 1,
-  irs_half_life =   0.5 * DY,
-  itn_half_life =   2.64 * DY,
-  IRS_interval =   1 * DY,
-  ITN_interval =   3 * DY,
-  ...
+run_SMFA_model <- function(temp, 
+                           DTR, 
+                           bt,
+                           p_ind = 2,
+                           c, # if constant
+                           t = seq(0, max_time, 0.1),
+                           unique_t,
+                           EIP_p = NULL,
+                           v_EIP = TRUE,
+                           rate = NULL){
   
-){
-  # set up param list
-  mp_list <- list()
   
-  # catach extra params and place in list
-  extra_param_list <- list(...)
-  if(length(extra_param_list)>0){
-    if(is.list(extra_param_list[[1]])){
-      extra_param_list <- extra_param_list[[1]]
+  index <- which(unique_t$temp == temp & unique_t$DTR == DTR & unique_t$bt == bt & unique_t$p_ind == p_ind & unique_t$c == c)
+  
+  #params <- c(mu = 0.1, shape = 47, i = index, a = EIP_p[1], b = EIP_p[2], c = EIP_p[3], t0 = EIP_p[4])
+  if(v_EIP == TRUE){
+    params <- c(mu = 0.1, shape = 47, index = index, EIP_CI = p_ind, v_EIP = v_EIP)
+  } else{
+    params <- c(mu = 0.1, shape = 47, index = index, EIP_CI = p_ind, v_EIP = v_EIP, rate = rate)
+  }
+  
+  delta <- unique_t[index,"delta"]
+  #delta <- gen_delta(fit_temp, (mean(temp_fun[[index]](seq(0, delta_time, 0.1))) - 23.06936)/4.361642)
+  state <- c(U = (1 - delta)*1, E = c(delta*1, rep(0, params[["shape"]]-1)),  I = 0)
+  
+  out_mc <- as.data.frame(ode(y = state, times = t, func = model_4,
+                              parms = params)) %>% rowwise() %>%
+    mutate(M = U + sum(c_across("E1":paste0("E",params[["shape"]]))) + I,
+           s_prev = I / M,
+           temp = unique_t[index, "temp"],
+           DTR = unique_t[index, "DTR"],
+           bt = unique_t[index, "bt"],
+           p_ind = unique_t[index, "p_ind"])
+  return(out_mc)
+}
+
+gen_delta <- function(fit, temp){
+  placeholder <- (1/(1+exp(-(rstan::extract(fit, "a_delta")[[1]] * temp^2 + 
+                               rstan::extract(fit, "b_delta")[[1]] * temp + 
+                               rstan::extract(fit, "c_delta")[[1]])))) *
+    (1/(1+exp(-(rstan::extract(fit, "a_delta_S")[[1]] * temp^2 + 
+                  rstan::extract(fit, "b_delta_S")[[1]] * temp + 
+                  rstan::extract(fit, "c_delta_S")[[1]]))))
+  
+  return(c(mean(placeholder), quantile(placeholder, c(0.5, 0.025, 0.975))))
+}
+
+# calculating the delta values over different time-periods
+# could be the mean over different time-frames - so calculate the mean between a range?
+run_diff_delta <- function(h,
+                           u_l,
+                           delta_vt = TRUE, # if delta is determined by variable temperature = TRUE
+                           EIP_vt = TRUE, # if EIP is determined by the variable temperature = TRUE, previously ll_calc
+                           delta_fun = "max",
+                           #ll_calc = TRUE
+                           unique_t_DTR,
+                           fit,
+                           mean_temp,
+                           sd_temp,
+                           v_EIP = TRUE){
+  # rather than hours should this be the time until the same % of the sporogony is complete?
+  # delta estimation
+  if(delta_vt == TRUE){
+    n_ <- c(rep(seq(1,u_l,1), 2)) # so that the delta values are the same for each replicate
+  } else{
+    n_ <- c(rep(seq((u_l+1),nrow(unique_t_DTR),1), 2))
+  }
+  
+  unique_t_DTR$n <- n_
+  
+  if(delta_fun == "max"){
+    unique_t_DTR <- unique_t_DTR %>% rowwise() %>% 
+      mutate(m_temp = max(temp_fun[[n]](seq(0, h, 0.1)/24)))
+    unique_t_DTR <- as.data.frame(unique_t_DTR %>% mutate(delta = gen_delta(fit = fit, temp = (m_temp - mean_temp)/sd_temp)['50%'][[1]]))
+  } else if(delta_fun == "min"){
+    unique_t_DTR <- unique_t_DTR %>% rowwise() %>% 
+      mutate(m_temp = min(temp_fun[[n]](seq(0, h, 0.1)/24)))
+    unique_t_DTR <- as.data.frame(unique_t_DTR %>% mutate(delta = gen_delta(fit = fit, temp = (m_temp - mean_temp)/sd_temp)['50%'][[1]]))
+  } else if(delta_fun == "mean"){
+    unique_t_DTR <- unique_t_DTR %>% rowwise() %>% 
+      mutate(m_temp = mean(temp_fun[[n]](seq(0, h, 0.1)/24)))
+    unique_t_DTR <- as.data.frame(unique_t_DTR %>% mutate(delta = gen_delta(fit = fit, temp = (m_temp - mean_temp)/sd_temp)['50%'][[1]]))
+  } else if(delta_fun == "mean_delta"){
+    for(i in 1:nrow(unique_t_DTR)){
+      p <- data.frame("m_temp" = temp_fun[[unique_t_DTR[i, "n"]]](seq(0, h, 0.1)/24)) %>% rowwise() %>% mutate(t_ = (m_temp - mean_temp)/sd_temp,
+                                                                                                               delta = gen_delta(fit = fit, temp = t_)['50%'][[1]])
+      unique_t_DTR[i, "delta"] <- mean(p$delta)
+    }
+    
+  } else if(delta_fun == "min_delta"){
+    for(i in 1:nrow(unique_t_DTR)){
+      p <- data.frame("m_temp" = temp_fun[[unique_t_DTR[i, "n"]]](seq(0, h, 0.1)/24)) %>% rowwise() %>% mutate(t_ = (m_temp - mean_temp)/sd_temp,
+                                                                                                               delta = gen_delta(fit = fit, temp = t_)['50%'][[1]])
+      unique_t_DTR[i, "delta"] <- min(p$delta)
+    }
+  } else if(delta_fun == "max_delta"){
+    for(i in 1:nrow(unique_t_DTR)){
+      p <- data.frame("m_temp" = temp_fun[[unique_t_DTR[i, "n"]]](seq(0, h, 0.1)/24)) %>% rowwise() %>% mutate(t_ = (m_temp - mean_temp)/sd_temp,
+                                                                                                               delta = gen_delta(fit = fit, temp = t_)['50%'][[1]])
+      unique_t_DTR[i, "delta"] <- max(p$delta)
+    }
+  }  else if(delta_fun == "geom_m_delta"){
+    for(i in 1:nrow(unique_t_DTR)){
+      p <- data.frame("m_temp" = temp_fun[[unique_t_DTR[i, "n"]]](seq(0, h, 0.1)/24)) %>% rowwise() %>% mutate(t_ = (m_temp - mean_temp)/sd_temp,
+                                                                                                               delta = gen_delta(fit = fit, temp = t_)['50%'][[1]])
+      unique_t_DTR[i, "delta"] <- exp(mean(log(p$delta)))
     }
   }
   
-  ## DEFAULT PARAMS
-  
-  # duration of year
-  mp_list$DY <- DY
-  
-  # age, heterogeneity in exposure
-  mp_list$eta <- eta
-  mp_list$rho <- rho
-  mp_list$a0 <- a0
-  mp_list$sigma2 <- sigma2
-  mp_list$max_age <- max_age
-  
-  # rate of leaving infection states
-  mp_list$rA <- rA
-  mp_list$rT <- rT
-  mp_list$rD <- rD
-  mp_list$rU <- rU
-  mp_list$rP <- rP
-  
-  # human latent period and time lag from asexual parasites to
-  # infectiousness
-  mp_list$dE <- dE
-  mp_list$delayGam <- delayGam
-  
-  # infectiousness to mosquitoes
-  mp_list$cD <- cD
-  mp_list$cT <- cT
-  mp_list$cU <- cU
-  mp_list$gamma1 <- gamma1
-  
-  # Immunity reducing probability of detection
-  mp_list$d1 <- d1
-  mp_list$dID <- dID
-  mp_list$ID0 <- ID0
-  mp_list$kD <- kD
-  mp_list$uD <- uD
-  mp_list$aD <- aD
-  mp_list$fD0 <- fD0
-  mp_list$gammaD <- gammaD
-  
-  # PCR prevalence parameters
-  mp_list$alphaA <- alphaA
-  mp_list$alphaU <- alphaU
-  
-  # anti-infection immunity
-  mp_list$b0 <- b0
-  mp_list$b1 <- b1
-  mp_list$dB <- dB
-  mp_list$IB0 <- IB0
-  mp_list$kB <- kB
-  mp_list$uB <- uB
-  
-  # clinical immunity
-  mp_list$phi0 <- phi0
-  mp_list$phi1 <- phi1
-  mp_list$dCA <- dCA
-  mp_list$IC0 <- IC0
-  mp_list$kC <- kC
-  mp_list$uCA <- uCA
-  mp_list$PM <- PM
-  mp_list$dCM <- dCM
-  
-  # entomological parameters
-  #mp_list$delayMos <- delayMos
-  mp_list$tau1 <- tau1
-  mp_list$tau2 <- tau2
-  mp_list$mu0 <- mu0
-  mp_list$Q0 <- Q0
-  mp_list$chi <- chi
-  mp_list$bites_Bed <- bites_Bed
-  mp_list$bites_Indoors <- bites_Indoors
-  mp_list$fv0 <- 1 / (tau1 + tau2)
-  mp_list$av0 <- Q0 * mp_list$fv0 # daily feeeding rate on humans
-  #mp_list$Surv0 <- exp(-mu0 * delayMos) # probability of surviving incubation period
-  mp_list$p10 <- exp(-mu0 * tau1)  # probability of surviving one feeding cycle
-  mp_list$p2 <- exp(-mu0 * tau2)  # probability of surviving one resting cycle
-  
-  # Erlang distribution EIP
-  mp_list$comp <- comp
-  mp_list$delayMos <- comp/EIP
-  
-  # ITN/IRS parameters
-  mp_list$itn_cov <- itn_cov
-  mp_list$irs_cov <- irs_cov
-  
-  mp_list$num_int <- num_int
-  # Catch all: Not defined the correct number of interventions
-  if (itn_cov > 0 & num_int == 1){
-    stop(message("Incorrect number of interventions for definied ITN coverage. Please ensure you have correctly
-                 specified the number of interventions."))
-  }
-  if (irs_cov > 0 & num_int < 3){
-    stop(message("Incorrect number of interventions for definied IRS coverage. Please ensure you have correctly
-                 specified the number of interventions."))
+  if(EIP_vt == TRUE){
+    u_t_in <- unique_t_DTR[1:u_l,]
+  } else{
+    u_t_in <- unique_t_DTR[(u_l+1):nrow(unique_t_DTR),]
   }
   
-  # Sets start time of coverage
-  mp_list$ITN_IRS_on <- ITN_IRS_on
+  if(v_EIP == TRUE){
+    out_mc <- as.data.frame(bind_rows(mapply(run_SMFA_model, 
+                                             temp = u_t_in[,"temp"], 
+                                             DTR = u_t_in[,"DTR"], 
+                                             bt = u_t_in[,"bt"], 
+                                             p_ind = u_t_in[,"p_ind"], 
+                                             c = u_t_in[,"c"], SIMPLIFY = FALSE,
+                                             MoreArgs = list(unique_t = unique_t_DTR, v_EIP = TRUE)))) # p_ind = 2 so this model is with the median mean EIP 
+  } else{
+    out_mc <- as.data.frame(bind_rows(mapply(run_SMFA_model, 
+                                             temp = u_t_in[,"temp"], 
+                                             DTR = u_t_in[,"DTR"], 
+                                             bt = u_t_in[,"bt"], 
+                                             p_ind = u_t_in[,"p_ind"], 
+                                             c = u_t_in[,"c"], 
+                                             rate = u_t_in[,"rate"],
+                                             SIMPLIFY = FALSE,
+                                             MoreArgs = list(unique_t = unique_t_DTR, v_EIP = FALSE))))
+  }
   
-  # Sets population split as coverage
-  # {No intervention} {ITN only} {IRS only} {Both ITN and IRS}
-  cov <- c((1 - itn_cov) * (1 - irs_cov), itn_cov * (1 - irs_cov), (1 - itn_cov) * irs_cov, itn_cov * irs_cov)
-  cov <- cov[1:mp_list$num_int]
-  mp_list$cov <- cov
+  out_mc$temp <- ceiling(out_mc$temp)
   
-  mp_list$d_ITN0 <- d_ITN0
-  mp_list$r_ITN0 <- r_ITN0
-  mp_list$r_ITN1 <- r_ITN1
-  mp_list$r_IRS0 <- r_IRS0
-  mp_list$d_IRS0 <- d_IRS0
-  mp_list$irs_half_life <- irs_half_life
-  mp_list$itn_half_life <- itn_half_life
-  mp_list$IRS_interval <- IRS_interval
-  mp_list$ITN_interval <- ITN_interval
-  mp_list$irs_loss <- log(2)/mp_list$irs_half_life
-  mp_list$itn_loss <- log(2)/mp_list$itn_half_life
+  out_mc <- out_mc %>% mutate(DPI = time,
+                              delta_vt = delta_vt,
+                              EIP_vt = EIP_vt)
   
-  # check that none of the spare parameters in the extra
-  if(sum(!is.na(match(names(extra_param_list),names(mp_list))))!=0){
-    
-    stop (message(cat("Extra params in ... share names with default param names. Please check:\n",
-                      names(extra_param_list)[!is.na(match(names(extra_param_list),names(mp_list)))]
+  unique_t_DTR <- unique_t_DTR[,!names(unique_t_DTR) %in% c("n", "m_temp", "delta")]
+  rm(list = c("u_t_in"))
+  return(out_mc)
+}
+
+# functions to calculate the maximum likelihoods
+calc_ll_DTR <- function(s_totals_ = s_totals_l, out){
+  index <- match(interaction(round(s_totals_$DPI, digits = 1), s_totals_$temp, s_totals_$bt, s_totals_$DTR), interaction(round(out$DPI, digits = 1), out$temp, out$bt, out$DTR))
+  p <- out[index, "s_prev"]
+  ll <- dbinom(x = s_totals_[,"positive"], size = s_totals_[,"sample"], prob = p, log = TRUE)
+  return(ll)
+}
+
+calc_ll_all <- function(delta_vt_in, EIP_vt_in, delta_fun_in, min_h = 1, max_h = 24, s_h = 1, v_EIP_in = TRUE){
+  likelihoods <- bind_rows(lapply(seq(min_h, max_h, s_h), function(x){
+    out_fc <- NULL
+    attempt <- 0
+    while(is.null(out_fc) && attempt <= 5){
+      attempt <- attempt + 1
+      try(
+        out_fc <- run_diff_delta(h = x, 
+                                 u_l = u_l, 
+                                 delta_vt = delta_vt_in, 
+                                 EIP_vt = EIP_vt_in, 
+                                 delta_fun = delta_fun_in, 
+                                 unique_t_DTR = unique_t_DTR,  
+                                 fit = fit, 
+                                 mean_temp = mean_temp, 
+                                 sd_temp = sd_temp, 
+                                 v_EIP = v_EIP_in)
+      )
+    } 
+    l <- data.frame("h" = x,
+                    "ll" = sum(calc_ll_DTR(out = out_fc)),
+                    "attempt" = attempt)
+    rm(list = c("attempt", "out_fc"))
+    return(l)
+  }))
+  return(likelihoods)
+}
+
+calc_ll_ml <- function(x, delta_vt_in, EIP_vt_in, delta_fun_in, v_EIP_in = TRUE){
+  out_fc <- NULL
+  attempt <- 0
+  while(is.null(out_fc) && attempt <= 5){
+    attempt <- attempt + 1
+    try(
+      out_fc <- run_diff_delta(h = x, u_l = u_l, 
+                               delta_vt = delta_vt_in, 
+                               EIP_vt = EIP_vt_in, 
+                               delta_fun = delta_fun_in, 
+                               unique_t_DTR = unique_t_DTR,  
+                               fit = fit, 
+                               mean_temp = mean_temp, 
+                               sd_temp = sd_temp,
+                               v_EIP = v_EIP_in)
     )
-    ))
   }
-  
-  return(append(mp_list,extra_param_list))
+  l <- sum(calc_ll_DTR(out = out_fc))
+  rm(list = c("attempt", "out_fc"))
+  return(l * -1) # because optim function
 }
 
-# function that generates the starting values - still need to run for a warmup period before equilibrium is reached
-# sets the initial mosquito infection to 0.01
-equilibrium_init_create_comp <- function(age_vector, 
-                                         het_brackets,
-                                         ft = 1,
-                                         model_param_list,
-                                         mv0_in,
-                                         EIR_in,
-                                         mf,
-                                         multi_species = FALSE)
-{
-  
-  # mpl is shorter :)
-  mpl <- model_param_list
-  
-  ## Check Parameters
-  if(!is.numeric(age_vector)) stop("age_vector provided is not numeric")
-  if(!is.numeric(het_brackets)) stop("het_brackets provided is not numeric")
-  if(!is.numeric(ft)) stop("ft provided is not numeric")
-  
-  ## population demographics
-  age <- age_vector * mpl$DY
-  na <- as.integer(length(age))  # number of age groups
-  nh <- as.integer(het_brackets)  # number of heterogeneity groups
-  h <- statmod::gauss.quad.prob(nh, dist = "normal")
-  age0 <- 2
-  age1 <- 10
-  num_int <- mpl$num_int
-  
-  age_rate <- age_width <- age_mid_point <- den <- c()
-  for (i in 1:(na-1)){
-    age_width[i] <- age[i+1] - age[i]
-    age_rate[i] <- 1/(age[i + 1] - age[i])  # vector of rates at which people leave each age group (1/age group width)
-    age_mid_point[i] <- 0.5 * (age[i] + age[i + 1])  # set age group vector to the midpoint of the group
-  }
-  age_rate[na] = 0
-  
-  den <- 1/(1 + age_rate[1]/mpl$eta)
-  for (i in 1:(na-1)){
-    den[i+1] <- age_rate[i] * den[i]/(age_rate[i+1] + mpl$eta)  # proportion in each age_vector group
-  }
-  
-  age59 <- which(age_vector * 12 > 59)[1] - 1  # index of age vector before age is >59 months
-  age05 <- which(age_vector > 5)[1] - 1  # index of age vector before age is 5 years
-  
-  ## force of infection
-  foi_age <- c()
-  for (i in 1:na){
-    foi_age[i] <- 1 - (mpl$rho * exp(-age[i]/mpl$a0))  #force of infection for each age group
-  }
-  fden <- foi_age * den
-  omega <- sum(fden)  #normalising constant
-  
-  ## heterogeneity
-  het_x <- h$nodes
-  het_wt <- h$weights
-  den_het <- outer(den, het_wt)
-  rel_foi <- exp(-mpl$sigma2/2 + sqrt(mpl$sigma2) * het_x)/sum(het_wt * exp(-mpl$sigma2/2 + sqrt(mpl$sigma2) * het_x))
-  
-  ## EIR
-  EIRY_eq <- EIR_in  # initial annual EIR
-  EIRd_eq <- EIRY_eq/mpl$DY
-  EIR_eq <- outer(foi_age, rel_foi) * EIRd_eq
-  
-  ## Immunity and FOI
-  x_I <- den[1]/mpl$eta
-  for (i in 2:na){
-    x_I[i] <- den[i]/(den[i - 1] * age_rate[i - 1])  #temporary variables
-  }
-  fd <- 1 - (1 - mpl$fD0)/(1 + (age/mpl$aD)^mpl$gammaD)
-  
-  # maternal immunity begins at a level proportional to the clinical
-  # immunity of a 20 year old, this code finds that level
-  age20i <- rep(0, na)
-  for (i in 2:na){
-    age20i[i] <- ifelse(age[i] >= (20 * mpl$DY) & age[i - 1] < (20 * mpl$DY),
-                        i, age20i[i - 1])
-  }
-  age20u <- as.integer(age20i[na])
-  age20l <- as.integer(age20u - 1)
-  age_20_factor <- (20 * mpl$DY - age[age20l] - 0.5 * age_width[age20l]) *
-    2/(age_width[age20l] + age_width[age20u])
-  
-  # finding initial values for all immunity states
-  IB_eq <- matrix(0, na, nh)
-  FOI_eq <- matrix(0, na, nh)
-  ID_eq <- matrix(0, na, nh)
-  ICA_eq <- matrix(0, na, nh)
-  ICM_init_eq <- vector(length = nh, mode = "numeric")
-  ICM_eq <- matrix(0, na, nh)
-  cA_eq <- matrix(0, na, nh)
-  FOIvij_eq <- matrix(0, na, nh)
-  p_det_eq <- matrix(0, na, nh)
-  for (j in 1:nh)
-  {
-    for (i in 1:na){
-      IB_eq[i, j] <- (ifelse(i == 1, 0, IB_eq[i - 1, j]) +
-                        EIR_eq[i,j]/(EIR_eq[i, j] * mpl$uB + 1) * x_I[i])/(1 + x_I[i]/mpl$dB)
-      FOI_eq[i, j] <- EIR_eq[i, j] * ifelse(IB_eq[i, j] == 0, mpl$b0,
-                                            mpl$b0 * ((1 - mpl$b1)/(1 + (IB_eq[i, j]/mpl$IB0)^mpl$kB) + mpl$b1))
-      ID_eq[i, j] <- (ifelse(i == 1, 0, ID_eq[i - 1, j]) +
-                        FOI_eq[i, j]/(FOI_eq[i, j] * mpl$uD + 1) * x_I[i])/(1 + x_I[i]/mpl$dID)
-      ICA_eq[i, j] <- (ifelse(i == 1, 0, ICA_eq[i - 1, j]) +
-                         FOI_eq[i,j]/(FOI_eq[i, j] * mpl$uCA + 1) * x_I[i])/(1 + x_I[i]/mpl$dCA)
-      p_det_eq[i, j] <- mpl$d1 + (1 - mpl$d1)/(1 + fd[i] * (ID_eq[i, j]/mpl$ID0)^mpl$kD)
-      cA_eq[i, j] <- mpl$cU + (mpl$cD - mpl$cU) * p_det_eq[i, j]^mpl$gamma1
-    }
-  }
-  # needs to be calculated after because it references ICA
-  for (j in 1:nh){
-    for (i in 1:na){
-      ICM_init_eq[j] <- mpl$PM * (ICA_eq[age20l, j] + age_20_factor *
-                                    (ICA_eq[age20u, j] - ICA_eq[age20l, j]))
-      ICM_eq[i, j] <- ifelse(i == 1,
-                             ICM_init_eq[j], ICM_eq[i - 1,j])/(1 + x_I[i]/mpl$dCM)
-    }
-  }
-  
-  IC_eq <- ICM_eq + ICA_eq
-  phi_eq <- mpl$phi0 * ((1 - mpl$phi1)/(1 + (IC_eq/mpl$IC0)^mpl$kC) + mpl$phi1)
-  
-  
-  # human states
-  gamma <- mpl$eta + c(age_rate[1:(na - 1)], 0)
-  delta <- c(mpl$eta, age_rate[1:(na - 1)])
-  
-  betaT <- matrix(rep(mpl$rT + gamma, rep(nh, na)), ncol = nh, byrow = TRUE)
-  betaD <- matrix(rep(mpl$rD + gamma, rep(nh, na)), ncol = nh, byrow = TRUE)
-  betaP <- matrix(rep(mpl$rP + gamma, rep(nh, na)), ncol = nh, byrow = TRUE)
-  
-  aT <- FOI_eq * phi_eq * ft/betaT
-  aD <- FOI_eq * phi_eq * (1 - ft)/betaD
-  aP <- mpl$rT * aT/betaP
-  
-  Z_eq <- array(dim = c(na, nh, 4))
-  Z_eq[1, , 1] <- den_het[1, ]/(1 + aT[1, ] + aD[1, ] + aP[1, ])
-  Z_eq[1, , 2] <- aT[1, ] * Z_eq[1, , 1]
-  Z_eq[1, , 3] <- aD[1, ] * Z_eq[1, , 1]
-  Z_eq[1, , 4] <- aP[1, ] * Z_eq[1, , 1]
-  
-  for (j in 1:nh){
-    for (i in 2:na){
-      Z_eq[i, j, 1] <- (den_het[i, j] - delta[i] * (Z_eq[i - 1, j, 2]/betaT[i, j] +
-                                                      Z_eq[i - 1, j, 3]/betaD[i, j] +
-                                                      (mpl$rT *  Z_eq[i - 1, j, 2]/betaT[i, j]
-                                                       + Z_eq[i - 1, j, 4])/betaP[i, j]))/(1 + aT[i, j] + aD[i, j] + aP[i, j])
-      Z_eq[i, j, 2] <- aT[i, j] * Z_eq[i, j, 1] + delta[i] * Z_eq[i -
-                                                                    1, j, 2]/betaT[i, j]
-      Z_eq[i, j, 3] <- aD[i, j] * Z_eq[i, j, 1] + delta[i] * Z_eq[i -
-                                                                    1, j, 3]/betaD[i, j]
-      Z_eq[i, j, 4] <- aP[i, j] * Z_eq[i, j, 1] + delta[i] * (mpl$rT *
-                                                                Z_eq[i - 1, j, 2]/betaT[i, j] + Z_eq[i - 1, j, 4])/betaP[i,j]
-      
-    }
-  }
-  
-  Y_eq <- matrix(Z_eq[, , 1], nrow = na, ncol=nh)
-  T_eq <- matrix(Z_eq[, , 2], nrow = na, ncol=nh)
-  D_eq <- matrix(Z_eq[, , 3], nrow = na, ncol=nh)
-  P_eq <- matrix(Z_eq[, , 4], nrow = na, ncol=nh)
-  
-  betaS <- apply(FOI_eq, MARGIN = 2, FUN = function(x, y){x + y}, y = gamma)
-  betaA <- apply(FOI_eq * phi_eq + mpl$rA, MARGIN = 2, FUN = function(x, y){x + y}, y = gamma)
-  betaU <- apply(FOI_eq + mpl$rU, MARGIN = 2, FUN = function(x, y){x + y}, y = gamma)
-  
-  A_eq <- matrix(ncol = nh, nrow = na)
-  U_eq <- matrix(ncol = nh, nrow = na)
-  S_eq <- matrix(ncol = nh, nrow = na)
-  
-  for (i in 1:na){
-    for (j in 1:nh){
-      A_eq[i, j] <- (delta[i] * ifelse(i == 1, 0, A_eq[i - 1, j]) +
-                       FOI_eq[i, j] * (1 - phi_eq[i, j]) * Y_eq[i, j] +
-                       mpl$rD * D_eq[i,j])/(betaA[i, j] + FOI_eq[i, j] * (1 - phi_eq[i, j]))
-      U_eq[i, j] <- (mpl$rA * A_eq[i, j] + delta[i] * ifelse(i == 1,
-                                                             0, U_eq[i - 1, j]))/betaU[i, j]
-      S_eq[i, j] <- Y_eq[i, j] - A_eq[i, j] - U_eq[i, j]
-      FOIvij_eq[i, j] <- foi_age[i] * mpl$av0 * (mpl$cT * T_eq[i, j] + mpl$cD *
-                                                   D_eq[i, j] + cA_eq[i, j] * A_eq[i, j] + mpl$cU * U_eq[i, j]) * rel_foi[j]/omega
-    }
-  }
-  
-  # mosquito states - # need to update this for the
-  FOIv_eq <- sum(FOIvij_eq)
-  
-  # initial number
-  if(multi_species == TRUE){
-      Ev_eq_f <- rep(0, mpl$comp)
-      Iv_eq_f <- 0.01
-      Sv_eq_f <- 1 - 0.01
-      Ev_eq_g <- rep(0, mpl$comp)
-      Iv_eq_g <- 0.01
-      Sv_eq_g<- 1 - 0.01
-      mv0_f <- mv0_in[1] * mf
-      mv0_g <- mv0_in[2] * mf
-  } else{
-      Ev_eq <- rep(0, mpl$comp)
-      Iv_eq <- 0.01
-      Sv_eq <- 1 - 0.01
-      #mv0 <- omega * EIRd_eq/(Iv_eq * mpl$av0)
-      mv0 <- mv0_in[1] * mf
-  }
-  #Iv_eq_ <- FOIv_eq/10 * mpl$Surv0/(FOIv_eq + mpl$mu0) # this is not correct - not actually equilibrium
-  #Iv_eq <- sum(Iv_eq_)
-  #Sv_eq <- sum(mpl$mu0 * Iv_eq_/(FOIv_eq * mpl$Surv0)) # this is not correct - not actually equilibrium
-  #Ev_eq <- rep((1 - Sv_eq - Iv_eq)/10, 10) # this is not correct - not actually equilibrium
-  
-  # mosquito density needed to give this EIR
-  
-  # add in final dimension - interventions
-  num_int <- mpl$num_int
-  cov <- mpl$cov
-  
-  mat <- matrix(0, na, nh)
-  
-  S_eq <- vapply(cov, FUN = function(x)
-  {
-    x * S_eq
-  }, mat)
-  T_eq <- vapply(cov, FUN = function(x)
-  {
-    x * T_eq
-  }, mat)
-  D_eq <- vapply(cov, FUN = function(x)
-  {
-    x * D_eq
-  }, mat)
-  A_eq <- vapply(cov, FUN = function(x)
-  {
-    x * A_eq
-  }, mat)
-  U_eq <- vapply(cov, FUN = function(x)
-  {
-    x * U_eq
-  }, mat)
-  P_eq <- vapply(cov, FUN = function(x)
-  {
-    x * P_eq
-  }, mat)
-  
-  IB_eq = array(IB_eq, c(na, nh, num_int))
-  ID_eq = array(ID_eq, c(na, nh, num_int))
-  ICA_eq = array(ICA_eq, c(na, nh, num_int))
-  ICM_eq = array(ICM_eq, c(na, nh, num_int))
-  
-  # TODO: Remove this part and put it as an edit to the equilibrium solution
-  if(!is.null(mpl$ncc)){
-    IB_eq = array(IB_eq, c(na, nh, num_int, mpl$ncc))
-    ID_eq = array(ID_eq, c(na, nh, num_int, mpl$ncc))
-    ICA_eq = array(ICA_eq, c(na, nh, num_int, mpl$ncc))
-    ICM_eq = array(ICM_eq, c(na, nh, num_int, mpl$ncc))
-    
-    # add in final dimension - interventions
-    all_rounds = mpl$MDA_grp_prop*mpl$MDA_cov
-    ccov = c(all_rounds, 1-all_rounds)
-    
-    mat2 <- array(0, c(na,nh, num_int))
-    S_eq <- vapply(ccov,FUN = function(x){x * S_eq},mat2)
-    T_eq <- vapply(ccov,FUN = function(x){x * T_eq},mat2)
-    D_eq <- vapply(ccov,FUN = function(x){x * D_eq},mat2)
-    A_eq <- vapply(ccov,FUN = function(x){x * A_eq},mat2)
-    U_eq <- vapply(ccov,FUN = function(x){x * U_eq},mat2)
-    P_eq <- vapply(ccov,FUN = function(x){x * P_eq},mat2)
-  }
-  
-  # better het bounds for equilbirum initialisation in individual model
-  zetas <- rlnorm(n = 1e5,meanlog = -mpl$sigma2/2, sdlog = sqrt(mpl$sigma2))
-  while(sum(zetas>100)>0){
-    zetas[zetas>100] <- rlnorm(n = sum(zetas>100),meanlog = -mpl$sigma2/2, sdlog = sqrt(mpl$sigma2))
-  }
-  
-  wt_cuts <- round(cumsum(het_wt)*1e5)
-  zeros <- which(wt_cuts==0)
-  wt_cuts[zeros] <- 1:length(zeros)
-  larges <- which(wt_cuts==1e5)
-  wt_cuts[larges] <- (1e5 - (length(larges)-1)):1e5
-  wt_cuts <- c(0,wt_cuts)
-  het_bounds <- sort(zetas)[wt_cuts]
-  het_bounds[length(het_bounds)] <- (mpl$max_age/365)+1
-  
-  ## collate init
-  # this is changed as well
-  
-  if(multi_species == TRUE){
-    res <- list(init_S = S_eq, init_T = T_eq, init_D = D_eq, init_A = A_eq, init_U = U_eq,
-              init_P = P_eq, init_Y = Y_eq, init_IB = IB_eq, init_ID = ID_eq, init_ICA = ICA_eq,
-              init_ICM = ICM_eq, ICM_init_eq = ICM_init_eq,
-              init_Iv_f = Iv_eq_f, init_Sv_f = Sv_eq_f, init_Ev_f = Ev_eq_f,
-              init_Iv_g = Iv_eq_g, init_Sv_g = Sv_eq_g, init_Ev_g = Ev_eq_g,
-              age_width = age_width, age_rate = age_rate, het_wt = het_wt, het_x = het_x,
-              omega = omega, foi_age = foi_age, rel_foi = rel_foi,
-              mv0_f = mv0_f, mv0_g = mv0_g,
-              na = na, nh = nh, ni = num_int, x_I = x_I,
-              FOI = FOI_eq, EIR_eq = EIR_eq, cA_eq = cA_eq,
-              den = den, age59 = age59, age05 = age05, age = age_vector*mpl$DY, ft = ft, FOIv_eq = FOIv_eq,
-              betaS = betaS, betaA = betaA, betaU = betaU, FOIvij_eq=FOIvij_eq,
-              age_mid_point = age_mid_point, het_bounds = het_bounds, pi = pi,
-              age20l = age20l, age20u = age20u, age_20_factor = age_20_factor)
-  } else{
-    res <- list(init_S = S_eq, init_T = T_eq, init_D = D_eq, init_A = A_eq, init_U = U_eq,
-              init_P = P_eq, init_Y = Y_eq, init_IB = IB_eq, init_ID = ID_eq, init_ICA = ICA_eq,
-              init_ICM = ICM_eq, ICM_init_eq = ICM_init_eq, init_Iv = Iv_eq, init_Sv = Sv_eq,
-              init_Ev = Ev_eq,
-              age_width = age_width, age_rate = age_rate, het_wt = het_wt, het_x = het_x,
-              omega = omega, foi_age = foi_age, rel_foi = rel_foi,
-              mv0 = mv0, na = na, nh = nh, ni = num_int, x_I = x_I,
-              FOI = FOI_eq, EIR_eq = EIR_eq, cA_eq = cA_eq,
-              den = den, age59 = age59, age05 = age05, age = age_vector*mpl$DY, ft = ft, FOIv_eq = FOIv_eq,
-              betaS = betaS, betaA = betaA, betaU = betaU, FOIvij_eq=FOIvij_eq,
-              age_mid_point = age_mid_point, het_bounds = het_bounds, pi = pi,
-              age20l = age20l, age20u = age20u, age_20_factor = age_20_factor)
-  }
 
-  res <- append(res,mpl)
-  
-  return(res)
-}
 
-# runs the model with set EIP values and a zero beta value
-# measure can be mean, min or max - this is the temperature value
-run_model <- function(t_df, EIP, measure, n_warm_up, avg_t, EIP_x,
-                      state_use, mpl){
-  
-  # EIP values
-  t_df$EIP <- EIP[match(round(t_df[, measure][[1]], digits = 2), 
-                        round(EIP$temp, digits = 2)), 
-                  "median"]
-  
-  df_EIP <- data.frame("t" = seq(0, max(t_df$days_) - 1 + n_warm_up, 0.5)) # t is in days
-  
-  df_EIP$EIP <- t_df[match(df_EIP$t - n_warm_up + 1, t_df$days), "EIP"][[1]]
-  
-  df_EIP[1:(n_warm_up * 2), "EIP"] <- mean(t_df$EIP) # running with the mean EIP before reaching equilibrium
-  
-  df_EIP <- df_EIP %>% fill(EIP, .direction = "down")
-  
-  t <- df_EIP$t
-  n_t <- length(t)
-  
-  state_use$delayMos_t <- t
-  state_use$delayMos_rate <- mpl$comp / df_EIP$EIP
-  state_use$ldm <- n_t
-  
-  state_use$beta_t <- t
-  state_use$beta_rate <- rep(0, n_t)
-  
-  mod <- gen(user=state_use, use_dde=TRUE)
-  mod_run <- mod$run(t, n_history = 10000) # takes approx - 2 seconds
-  out <- mod$transform_variables(mod_run)
-  
-  out_df <- data.frame("time" = out$t,
-                       "m" = out$mv,
-                       "I" = out$Iv,
-                       "S" = out$Iv / out$mv,
-                       "EIP" = out$delayMos,
-                       "mu" = out$mu)
-  
-  # mutate(E = sum(c_across(paste0("E",1):paste0("E",params["shape"]))),
-  #         M = S + E + I,
-  #         spz = I/M)
-  n_out <- nrow(out_df)
-  
-  out_df$temp_measure <- rep(measure, n_out)
-  out_df$avg_t <- rep(avg_t, n_out)
-  out_df$EIP_x <- rep(EIP_x, n_out)
-  rm(list = c("t_df", "df_EIP"))
-  return(out_df)
-}
-
-set_c_temp <- function(temp, temp_df, measure){
-  temp_df[, measure] <- rep(temp, nrow(temp_df))
-  return(temp_df)
-}

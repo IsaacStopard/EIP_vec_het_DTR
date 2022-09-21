@@ -381,6 +381,11 @@ get_vals <- function(df = m_params_, temp_in, m_in, value, variable){
   return(df_)
 }
 
+max(na.omit(subset(s_params_full, temp == 30)$diff_I_m))*100
+max(na.omit(subset(s_params_full, temp == 20)$diff_EIR))
+max(na.omit(subset(s_params_full, temp == 20)$diff_R0))
+max(na.omit(subset(s_params_full, temp == 30)$diff_EIR))
+max(na.omit(subset(s_params_full, temp == 30)$diff_R0))
 
 subset(s_params_full, temp == 30) %>% group_by(mu_) %>% summarise(m = mean(na.omit(diff_I_m))) %>% 
   ungroup() %>% top_n(1, m)
@@ -388,6 +393,8 @@ subset(s_params_full, temp == 30) %>% group_by(mu_) %>% summarise(m = mean(na.om
 get_vals(temp_in = 20, m_in = 20, value = 10, variable = "mu_")$EIR_M1
 
 get_vals(df = s_params_relative, temp_in = 20, m_in = 20, value = 6.9, variable = "mu_")$diff_I_m
+
+
 
 m_p_30 <- subset(m_params_, temp == 30 & m_ == 20)
 min(m_p_30[which(m_p_30$classic_10 > 0),]$mu_)

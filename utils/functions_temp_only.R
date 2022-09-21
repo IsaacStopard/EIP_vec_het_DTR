@@ -181,7 +181,8 @@ get_EIP_stephensi <- function(params, temps, iter){
   }
   
   return(list("shape_O" = shape_O, "rate_O" = rate_O, "shape_S" = shape_S, "rate_S" = rate_S, "shape_total_S" = shape_total_S, 
-              "rate_total_S" = rate_total_S, "mean_total_S" = mean_total_S, "EIP_10" = EIP_10, "EIP_50" = EIP_50, "EIP_90" = EIP_90))
+              "rate_total_S" = rate_total_S, "mean_total_S" = mean_total_S, "EIP_10" = EIP_10, "EIP_50" = EIP_50, "EIP_90" = EIP_90,
+              "mu" = mu, "k" = k))
 }
 
 # function that calculates the PDF for each MCMC iteration
