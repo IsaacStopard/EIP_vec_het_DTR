@@ -23,12 +23,6 @@ EIP_CDF <- function(t, a, b, mu, k){
            (1 - (k / (k + mu))^k))
 }
 
-
-ggplot(data = data.frame("t" = seq(0, 20, 0.1)) %>% mutate(a = 10, b = 2.5, mu = 20, k = 1, pdf1 = EIP_PDF(t = t, a = a, b = b, mu = mu, k = k),
-                                                           pdf2 = EIP_PDF2(t = t, a = a, b = b, mu = mu, k = k))) +
-  geom_line(aes(x = t, y = pdf1), size = 1.5) +
-  geom_line(aes(x = t, y = pdf2), col = "skyblue", linetype = 2, size = 1.5)
-
 # function to calculate the mean of the EIP PDF 
 # to get the mean this function must be integrated
 mean_func <- function(t, a, b, mu, k){
@@ -599,3 +593,25 @@ gen_temp <- function(mid, DTR, n_days, bt, d = 0.1){
 }
 
 v.gen_temp <- Vectorize(gen_temp)
+
+#######################################################################
+##### to estimate the HMTP values in microclimate.r and EIR_fit.r #####
+#######################################################################
+
+# returns the HMTP from the thermal performance curve for a given temperature
+gen_delta_DTR <- function(i, u_f_b, temp_fun, temp_data, mean_temp = 23.06936, sd_temp = 4.361642){
+  if(i %% 1000 == 0){print(i)}
+  
+  ind <- u_f_b[i, "index"]
+  start_hour <- which(temp_data[[ind]]$f_date == u_f_b[i, "f_date"]) 
+  start_time <- (start_hour  - 1 + u_f_b[i, "s_time"]%%1)/24
+  temp_in <- max(temp_fun[[ind]](seq(start_time, start_time + (10/24), 0.0001)))
+  temp_in <- (temp_in - mean_temp) / sd_temp # scaling so on same scale as parameter fits
+  
+  if(round(temp_data[[ind]][start_hour,"Temp"], digits = 4) == round(temp_fun[[ind]]((start_hour-1)/24), digits = 4)){
+    return(gen_delta(fit = fit, temp = temp_in))} else{
+      return(NA)
+    }
+}
+
+

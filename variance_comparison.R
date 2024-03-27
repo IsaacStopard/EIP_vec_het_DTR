@@ -6,7 +6,7 @@
 
 rm(list = ls())
 library(deSolve); library(tidyverse); library(zipfR); library(GoFKernel); library(ggnewscale); library(cowplot)
-library(lubridate); library(zoo); library(doBy)
+library(lubridate); library(zoo); library(doBy); library(pROC)
 
 source(file = "utils/functions_temp_only.R"); source(file = "utils/model_functions.R"); source(file = "utils/data_functions.R"); source(file = "utils/vector_comp_functions.R");
 
@@ -72,12 +72,8 @@ data_plot_v <- v_df %>% gather(key = temp, value = var_) %>% na.omit() %>% group
 nls(formula = v ~ get_var(comp, temp), data = var_df, start = list(comp = 20), control = list(tol = 1e-03), trace = TRUE)
 
 plot_v_df <- data.frame("temp" = seq(17, 30, 0.5)) %>% #
-  mutate("47" = get_var(47, temp),
-         "25" = get_var(25, temp),
-         "70" = get_var(70, temp),
-         "v" = get_var(47, temp))
-
-
+  mutate("47" = get_var(47, temp))
+colnames(plot_v_df)[2] <- "v"
 
 ######################################
 ##### running for the SMFA model #####
@@ -110,11 +106,13 @@ EIP_fun[[1]] <- approxfun(mean_EIP$temp, mean_EIP$`2.5%`, yleft = max(mean_EIP$`
 EIP_fun[[2]] <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`), yright = min(mean_EIP$`50%`)) # extrapolating beyond
 EIP_fun[[3]] <- approxfun(mean_EIP$temp, mean_EIP$`97.5%`, yleft = max(mean_EIP$`97.5%`), yright = min(mean_EIP$`97.5%`))
 
+# loading in the data from the constant temperature SMFAs
 s_data_C <- read.csv(file = "data/processed/ES_new_constant_temp_spz_processed.csv") %>% 
   mutate(gametocytemia = round(gametocytemia, digits = 5), bt = 12, study = 1) %>% index_fun(variable = "gametocytemia", v_out = "index_g") %>% filter(index_g!=1)
 
 s_totals_c <- generate_prevalence_DTR(s_data_C[,-c(1)] %>% index_fun(variable = "temp", v_out = "index_temp"))
 
+# specifying the credible interval HMTP estimates that correspond to the credible interval mean EIP estimates
 unique_t <- replicate(3,unique(s_totals_c[,c("temp", "DTR")]),  simplify = FALSE)
 for(i in 1:3){
   unique_t[[i]]$p_ind <- i
@@ -133,21 +131,22 @@ unique_t$c = 1
 max_time <- 50
 l <- nrow(unique_t)
 temp_fun <- vector(mode = "list", length = l)
+# creating functions that describe the changes in temperature with time - should be no changes
 for(i in 1:l){
   temp_fun[[i]] <- approxfun(seq(0, 24 * max_time, 0.1)/24, 
                              gen_temp(unique_t[i, "temp"], unique_t[i, "DTR"], max_time, bt = 12))
 }
 
-#unique_t_ <- unique_t
-#mean_EIP_ <- mean_EIP
-
+# running the Erlang distribution model for each constant temperature
+# unique_t is subset to only run for the median posterior values
 out_mc <- as.data.frame(bind_rows(mapply(run_SMFA_model, temp = unique_t[,"temp"], DTR = unique_t[,"DTR"], p_ind = unique_t[,"p_ind"], 
                                          MoreArgs = list(bt = 12, unique_t = unique_t, c = 1), SIMPLIFY = FALSE)))
 
+# combining the plots 
 plot_df <- out_mc[,c("time", "s_prev", "temp", "DTR", "bt", "p_ind")] %>% spread(key = p_ind, value = s_prev)
 colnames(plot_df) <- c("DPI", "temp", "DTR", "bt", "lower", "median", "upper")
 
-
+### getting the sporozoite prevalence values predicted by mSOS
 # posterior predictive distribution times
 PPD_times_g <- readRDS(file = "data/PPD_times_g")
 length_ppd_times <- length(PPD_times_g)
@@ -158,6 +157,7 @@ chains <- 4
 
 g_fits <- run_prop_ppd_df(fit, "pooled", "S_prevalence_ppd", length_ppd_times, PPD_times_g, unique_temp = e_temps)
 
+# subsetting the predicted values so they are only 2.5 days after the maximum collected day
 m_DPI <- as.data.frame(s_totals_c %>% group_by(temp) %>% summarise(m = max(DPI)))
 
 g_fits <- bind_rows(lapply(seq(1, nrow(m_DPI)),
@@ -175,21 +175,59 @@ plot_df <- bind_rows(lapply(seq(1, nrow(m_DPI)),
                             fit = plot_df))
 
 
-
-
 ### predictive accuracy
 s_totals_c[,"m3"] <- plot_df[match(interaction(s_totals_c$DPI, s_totals_c$temp), interaction(plot_df$DPI, plot_df$temp)),"median"]
 s_totals_c[,"mSOS"] <- g_fits[match(interaction(s_totals_c$DPI, s_totals_c$temp), interaction(g_fits$DPI, g_fits$temp)),"median"]
 
-rmse_fun <- function(x, y){
-  sqrt(sum((x - y)^2)/length(x))
+s_data_C[,"m3"] <- plot_df[match(interaction(s_data_C$DPI, s_data_C$temp), interaction(plot_df$DPI, plot_df$temp)),"median"]
+s_data_C[,"mSOS"] <- g_fits[match(interaction(s_data_C$DPI, s_data_C$temp), interaction(g_fits$DPI, g_fits$temp)),"median"]
+
+scaled_brier <- function(obs, pre){
+  brier <- sum((obs - pre)^2) / length(obs)
+  #brier_max <- mean(obs) * (1-mean(obs))
+  brier_max <- sum((obs - mean(obs))^2) / length(obs) 
+  return(1-brier/brier_max)
 }
 
-rmse_fun(s_totals_c$prevalence, 
-         s_totals_c$m3)
+round(scaled_brier(s_data_C$presence, 
+             s_data_C$m3), digits = 3)
 
-rmse_fun(s_totals_c$prevalence,
-         s_totals_c$mSOS)
+round(scaled_brier(s_data_C$presence,
+         s_data_C$mSOS), digits = 3)
+
+# ROC curves
+
+get_roc <- function(plot_df, i, dates, species){
+  b <- get_pred_act(plot_df = plot_df, i = i, dates = dates, species = species)
+  return(roc(b$y, b$predicted))
+  
+}
+
+mSOS_roc <- roc(s_data_C$presence, s_data_C$mSOS)
+m3_roc <- roc(s_data_C$presence, s_data_C$m3)
+
+auc(mSOS_roc)
+auc(m3_roc)
+
+roc_curves <- ggroc(list("m3" = m3_roc,
+                         "mSOS" = mSOS_roc),
+               size = 1.75, alpha = 0.8) +
+    theme_bw() +
+    scale_colour_manual(values = c("#56B4E9", "#E69F00"), name = "", labels = c("model 3 (SMFA)", "mSOS")) +
+    geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1), size = 1, linetype = 2, col = "grey75", inherit.aes = FALSE) +
+    ylab("Sensitivity") + xlab("Specificity") + theme(text = element_text(size = 18))
+  
+actual_fitted_plot <- ggplot(data = s_totals_c %>% gather(key = "model", value = "value", m3, mSOS), aes(x = prevalence, y = value, colour = model)) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper, y = value, col = model), size = 0.5, alpha = 0.5) + 
+  geom_abline(intercept = 0, slope = 1, linetype = 2, size = 1) +
+  geom_point(size = 2) +
+  geom_smooth(formula = y ~ x, method = "lm", se = FALSE, size = 1.5) +
+  theme_bw() + theme(text = element_text(size = 15)) +
+  xlab("Actual sporozoite prevalence") +
+  ylab("Predicted sporozoite prevalence") +
+  scale_x_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_colour_manual(values = c("#56B4E9", "#E69F00"), name = "", labels = c("model 3 (SMFA)", "mSOS")) +
 
 
 png(file = "results/figures/var_plot.png", height = 725, width = 725)
@@ -201,28 +239,20 @@ plot_grid(
   theme(text = element_text(size = 15)) + ylab("Variance in the EIP") + xlab("Temperature (°C)") + 
   scale_y_continuous(trans = "sqrt") +
   scale_x_continuous(breaks = seq(18, 30, 2)),
-  ggplot(data = s_totals_c %>% gather(key = "model", value = "value", m3, mSOS), aes(x = prevalence, y = value, colour = model)) +
-  geom_errorbarh(aes(xmin = lower, xmax = upper, y = value, col = model), size = 0.5, alpha = 0.5) + 
-  geom_abline(intercept = 0, slope = 1, linetype = 2, size = 1) +
-  geom_point(size = 2) +
-  geom_smooth(formula = y ~ x, method = "lm", se = FALSE, size = 1.5) +
-  theme_bw() + theme(text = element_text(size = 15)) +
-  xlab("Actual sporozoite prevalence") +
-  ylab("Predicted sporozoite prevalence") +
-  scale_x_continuous(labels = scales::percent, limits = c(0, 1)) +
-  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
-  scale_colour_manual(values = c("#56B4E9", "#E69F00"), name = "", labels = c("model 3 (SMFA)", "mSOS")) +
-    theme(legend.position = "none"),
+  
+  roc_curves + theme(legend.position = "none"),
   ncol = 2, rel_widths = c(1, 1), labels = c("A", "B")),
   
   ggplot() +
-  geom_pointrange(data = s_totals_c, #temp %in% c(19, 23, 27)
+  geom_pointrange(data = s_totals_c %>% mutate(temp = paste0(temp, "°C")), #temp %in% c(19, 23, 27)
                   aes(x = DPI, y = prevalence, ymin = lower, ymax = upper), 
                   alpha = 0.75, shape = 21, fill = "grey30", size = 0.75) + 
   facet_wrap(~temp, scales = "free_x") + 
   theme_bw() +
-  geom_line(data =  rbind(g_fits[,c("DPI", "median", "temp")] %>% mutate(model = "mSOS"),
-      plot_df[,c("DPI", "median", "temp")] %>% mutate(model = "model M3 (SMFA)")), 
+  geom_line(data =  rbind(g_fits[,c("DPI", "median", "temp")] %>% mutate(model = "mSOS",
+                                                                         temp = paste0(temp, "°C")),
+      plot_df[,c("DPI", "median", "temp")] %>% mutate(model = "model M3 (SMFA)",
+                                                      temp = paste0(temp, "°C"))), 
       aes(x = DPI, y = median, col = model, linetype = model), 
       size = 1.8, alpha = 0.9) +
   theme(text = element_text(size = 15)) +

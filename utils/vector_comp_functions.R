@@ -44,14 +44,14 @@ prop_ppd_function <- function(fit_df, n_unq_gt, length_ppd_times, PPD_times, ite
   prop_ppd_df$upper <- apply(prop_ppd_df[,1:((iterations - warmup)*chains)], 1, quantile, probs = c(0.975))
   prop_ppd_df$mean <- apply(prop_ppd_df[,1:((iterations - warmup)*chains)], 1, mean)
   
-  x <- ((iterations - warmup) * chains) 
-  prop_ppd_df <- prop_ppd_df%>%gather("iteration", "value", 1:x)
-  prop_ppd_df$percentile <- rep("iteration", nrow(prop_ppd_df))
+  #x <- ((iterations - warmup) * chains) 
+  #prop_ppd_df <- prop_ppd_df %>% gather("iteration", "value", 1:x)
+  #prop_ppd_df$percentile <- rep("iteration", nrow(prop_ppd_df))
   
-  prop_quantile_ppd_df <- subset(prop_ppd_df, iteration == "V1")
-  prop_quantile_ppd_df <- prop_quantile_ppd_df[,c("DPI", "index_gt", "median", "lower", "upper", "mean")]
+  #prop_quantile_ppd_df <- subset(prop_ppd_df, iteration == "V1")
+  #prop_quantile_ppd_df <- prop_quantile_ppd_df[,c("DPI", "index_gt", "median", "lower", "upper", "mean")]
   
-  return(prop_quantile_ppd_df)
+  return(prop_ppd_df[,c("DPI", "index_gt", "median", "lower", "upper", "mean")])
 }
 
 run_prop_ppd_df <- function(fit, model, Stan_data_name, length_ppd_times, PPD_times, unique_temp){

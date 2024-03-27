@@ -117,15 +117,60 @@ EIP_plot <- ggplot() +
        alpha = 0.325) +
   geom_line(data = rbind(EIP_plot_g %>% mutate(vector_species = "gambiae"),
                          EIP_plot_s %>% mutate(vector_species = "stephensi")),
-            aes(x = temp, y = EIP_50, colour = vector_species), size = 1.25) +
-  geom_line(data = EIP_plot_g, aes(x = temp, y = mean), col = "#56B4E9", linetype = 2, size = 1.25) +
-  geom_line(data = EIP_plot_s, aes(x = temp, y = mean), col = "#E69F00", linetype = 2, size = 1.25) +
+            aes(x = temp, y = EIP_50, colour = vector_species), linewidth = 1.25) +
+  geom_line(data = EIP_plot_g, aes(x = temp, y = mean), col = "#56B4E9", linetype = 2, linewidth = 1.25) +
+  geom_line(data = EIP_plot_s, aes(x = temp, y = mean), col = "#E69F00", linetype = 2, linewidth = 1.25) +
   theme_bw() + theme(text = element_text(size = 15)) +
   ylab("EIP") +
   xlab("Temperature (°C)") +
   scale_colour_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
   scale_fill_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
   scale_y_continuous(breaks = seq(0, 80, 10)) +
+  scale_x_continuous(breaks = seq(18, 34, 2)) 
+
+################
+##### HMTP #####
+################
+
+params_g <- rstan::extract(fit_gambiae)
+params_s <- rstan::extract(fit_stephensi)
+
+HMTP_s <- matrix(NA, nrow = length(params_s$m_delta), ncol = length(scaled_temps_s))
+
+for(i in 1:length(scaled_temps_s)){
+  print(i)
+  HMTP_s[,i] <- 1/(1 + exp(-(params_s$m_delta * scaled_temps_s[i] + params_s$c_delta)))
+}
+
+HMTP_s <- t(apply(HMTP_s, 2, quantile, probs = c(0.025, 0.5, 0.975))) %>% as.data.frame() %>% mutate(temp = temps_s,
+                                                                                                     species = "stephensi")
+
+colnames(HMTP_s) <- c("lower", "median", "upper", "temp", "species")
+
+HMTP_g <- matrix(NA, nrow = length(params_g$c_delta), ncol = length(scaled_temps_g))
+
+for(i in 1:length(scaled_temps_g)){
+  print(i)
+  HMTP_g[,i] <- (1/(1 + exp(-(params_g$a_delta * scaled_temps_g[i]^2 + params_g$b_delta * scaled_temps_g[i] + params_g$c_delta)))) * 
+    (1/(1 + exp(-(params_g$a_delta_S * scaled_temps_g[i]^2 + params_g$b_delta_S * scaled_temps_g[i] + params_g$c_delta_S))))
+}
+
+HMTP_g <- t(apply(HMTP_g, 2, quantile, probs = c(0.025, 0.5, 0.975))) %>% as.data.frame() %>% mutate(temp = temps_g,
+                                                                                                     species = "gambiae")
+
+colnames(HMTP_g) <- c("lower", "median", "upper", "temp", "species")
+
+HMTP_df <- rbind(HMTP_s, HMTP_g)
+
+HMTP_plot <- ggplot(data = HMTP_df, aes(x = temp, y = median, ymin = lower, ymax = upper, fill = species)) +
+  geom_ribbon(alpha = 0.325) +
+  geom_line(aes(colour = species), linewidth = 1.25) +
+  theme_bw() + theme(text = element_text(size = 15)) +
+  ylab("HMTP") +
+  xlab("Temperature (°C)") +
+  scale_colour_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
+  scale_fill_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   scale_x_continuous(breaks = seq(18, 34, 2)) 
 
 ############################
@@ -202,9 +247,9 @@ fit_plot <- ggplot(data = fits_plot_df %>%
   geom_pointrange(data = s_data %>% 
                     mutate(temp_label = paste0(temp, "°C")), 
                   aes(x = DPI, y = prevalence, ymin = lower, ymax = upper, 
-                      fill = vector_species), alpha = 0.75, shape = 21, col = "grey50") +
+                      fill = vector_species), alpha = 0.75, shape = 21, col = "grey30") +
   geom_ribbon(alpha = 0.325, aes(fill = vector_species)) +
-  geom_line(aes(col = vector_species), size = 1) +
+  geom_line(aes(col = vector_species), linewidth = 1) +
   theme_bw() + theme(text = element_text(size = 15)) +
   facet_wrap(~temp_label) +
   scale_colour_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
@@ -212,6 +257,26 @@ fit_plot <- ggplot(data = fits_plot_df %>%
   ylab("Sporozoite prevalence") +
   scale_y_continuous(labels = scales::percent, breaks = seq(0, 0.75, 0.25)) +
   xlab("Days post infection")
+
+fit_plot_lim <- ggplot(data = fits_plot_df %>% subset(temp %in% c(21, 27, 30)) %>% 
+                     mutate(temp_label = paste0(temp, "°C")), aes(x = DPI, y = median, ymin = lower, ymax = upper, group = vector_species)) +
+  geom_pointrange(data = s_data %>% subset(temp %in% c(21, 27, 30)) %>% 
+                    mutate(temp_label = paste0(temp, "°C")), 
+                  aes(x = DPI, y = prevalence, ymin = lower, ymax = upper, 
+                      fill = vector_species), alpha = 0.75, shape = 21, col = "grey30", size = 0.8) +
+  geom_ribbon(alpha = 0.325, aes(fill = vector_species)) +
+  geom_line(aes(col = vector_species), linewidth = 1.25) +
+  theme_bw() + theme(text = element_text(size = 15)) +
+  facet_wrap(~temp_label) +
+  scale_colour_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
+  scale_fill_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
+  ylab("Sporozoite prevalence") +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.2)) +
+  xlab("Days post infection")
+
+png(file = "results/figures/vec_fit_plot.png", height = 450, width = 700)
+fit_plot
+dev.off()
 
 ###########################
 ### EIP PDF differences ###
@@ -222,7 +287,7 @@ p_s <- rstan::extract(fit_stephensi)
 p_g <- rstan::extract(fit_gambiae)
 
 pr_g_s <- lapply(seq(21, 30, 0.2),
-                run_pr,
+                run_pr_val,
                 p_s = p_s,
                 p_g = p_g,
                 scaled_temps_s = scaled_temps_s,
@@ -237,26 +302,43 @@ pr_g_s_df <- bind_rows(pr_g_s) %>% mutate(temp = seq(21, 30, 0.2))
 pr_g_s_plot <- ggplot(data = pr_g_s_df) +
   geom_hline(yintercept = 0.5, linetype = 2, size = 1) +
   geom_ribbon(aes(x = temp, ymin = lower, ymax = upper), fill = "grey70", alpha = 0.575) +
-  geom_line(aes(x = temp, y = median), size = 1) +
+  geom_line(aes(x = temp, y = median), linewidth = 1) +
   theme_bw() +
-  theme(text = element_text(size = 15)) + 
+  theme(text = element_text(size = 20)) + 
   scale_x_continuous(breaks = seq(20, 30, 2)) +
   xlab("Temperature (°C)") +
   scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))  +
   ylab(expression(italic(p(EIP[g] > EIP[s]))))
 
-png(file = "results/figures/vector_plot.png", height = 770, width = 770)
+
+png(file = "results/figures/pr_g_s_plot.png", height = 400, width = 500)
+pr_g_s_plot
+dev.off()
+
+png(file = "results/figures/vector_plot.png", height = 570, width = 750)
+# plot_grid(
+#   fit_plot,
+#   plot_grid(
+#     EIP_plot + theme(legend.position = "none"),
+#     pr_g_s_plot + theme(legend.position = "none"), 
+#     ncol = 2, labels = c("B", "C")
+#   ),
+#   nrow = 2,
+#   labels = c("A", ""),
+#   rel_heights = c(1, 0.7)
+# )
+
 plot_grid(
-  fit_plot,
-  plot_grid(
-    EIP_plot + theme(legend.position = "none"),
-    pr_g_s_plot + theme(legend.position = "none"), 
-    ncol = 2, labels = c("B", "C")
-  ),
-  nrow = 2,
-  labels = c("A", ""),
-  rel_heights = c(1, 0.7)
-)
+  fit_plot_lim + theme(legend.position = "none"),
+  plot_grid(EIP_plot + theme(legend.position = "none"), 
+            HMTP_plot + theme(legend.position = "none"),
+            get_legend(EIP_plot),
+            ncol = 3, rel_widths = c(1, 1, 0.2985),
+            labels = c("B", "C")
+            ),
+          nrow = 2,
+          labels = c("A", ""),
+          rel_heights = c(1, 1.25))
   
 dev.off()
 

@@ -380,6 +380,31 @@ calc_pr <- function(o_g, o_s, iter_g, iter_s){
   return(out)
 }
 
+# calculate the probability the difference is greater
+calc_pr_val <- function(o_g, o_s, iter_g, iter_s){
+  df <- data.frame("g" = Inv_EIP_CDF(a = o_g[iter_g,"shape_total_S"], 
+                                     b = o_g[iter_g, "rate_total_S"], 
+                                     mu = o_g[iter_g, "mu"], 
+                                     k = o_g[iter_g, "k"], 
+                                     p = runif(10000)),
+                   "g_2" = Inv_EIP_CDF(a = o_g[iter_g,"shape_total_S"], 
+                                       b = o_g[iter_g, "rate_total_S"], 
+                                       mu = o_g[iter_g, "mu"], 
+                                       k = o_g[iter_g, "k"], 
+                                       p = runif(10000)),
+                   "s" = Inv_EIP_CDF(a = o_s[iter_s,"shape_total_S"], 
+                                     b = o_s[iter_s, "rate_total_S"], 
+                                     mu = o_s[iter_s, "mu"], 
+                                     k = o_s[iter_s, "k"], 
+                                     p = runif(10000))) %>% 
+    mutate(d_g = abs(g-g_2),
+           d_s = abs(g - s),
+           p = ifelse(d_g >= d_s, 1, 0))
+  out <- sum(df$p)/nrow(df)
+  return(out)
+}
+
+# calculate the probability one is greater than the other by sampling
 run_pr <- function(temp, p_s, p_g, scaled_temps_s, temps_s, scaled_temps_g, temps_g, s_one = "stephensi",
                    s_two = "gambiae"){
   temp <- round(temp, digits = 3)
@@ -402,6 +427,38 @@ run_pr <- function(temp, p_s, p_g, scaled_temps_s, temps_s, scaled_temps_g, temp
   ) %>% rowwise() %>% 
     mutate(
       p = calc_pr(o_g = out_g, o_s = out_s, iter_g = i_g, iter_s = i_s)
+    )
+  return(data.frame("mean" = mean(all$p),
+                    "median" = median(all$p),
+                    "lower" = quantile(all$p, c(0.025))[[1]],
+                    "upper" = quantile(all$p, c(0.975))[[1]]))
+}
+
+# calculate the probability the difference is greater by sampling
+run_pr_val <- function(temp, p_s, p_g, scaled_temps_s, temps_s, scaled_temps_g, temps_g, s_one = "stephensi",
+                   s_two = "gambiae"){
+  
+  temp <- round(temp, digits = 3)
+  temps_s <- round(temps_s, digits = 3)
+  temps_g <- round(temps_g, digits = 3)
+  
+  print(temp)
+  # set the seed 
+  set.seed(12345)
+  out_s <- get_EIP_params(scaled_temps_s[which(temps_s == temp)], 
+                          s_one,
+                          p_s)
+  
+  out_g <- get_EIP_params(scaled_temps_g[which(temps_g == temp)], 
+                          s_two,
+                          p_g)
+  
+  all <- data.frame(
+    "i_g" = sample(seq(1, nrow(out_g), 1), 10000, replace = FALSE), # 10000 samples # should this be replaced = TRUE - no because this is uniform distribution?
+    "i_s" = sample(seq(1, nrow(out_s), 1), 10000, replace = FALSE)
+  ) %>% rowwise() %>% 
+    mutate(
+      p = calc_pr_val(o_g = out_g, o_s = out_s, iter_g = i_g, iter_s = i_s)
     )
   return(data.frame("mean" = mean(all$p),
                     "median" = median(all$p),

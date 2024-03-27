@@ -525,6 +525,7 @@ multiple_model <- function(t, state, params){
 run_SMFA_model <- function(temp, 
                            DTR, 
                            bt,
+                           study,
                            p_ind = 2,
                            c, # if constant
                            t = seq(0, max_time, 0.1),
@@ -534,7 +535,7 @@ run_SMFA_model <- function(temp,
                            rate = NULL){
   
   
-  index <- which(unique_t$temp == temp & unique_t$DTR == DTR & unique_t$bt == bt & unique_t$p_ind == p_ind & unique_t$c == c)
+  index <- which(unique_t$temp == temp & unique_t$DTR == DTR & unique_t$bt == bt & unique_t$p_ind == p_ind & unique_t$c == c & unique_t$study == study)
   
   #params <- c(mu = 0.1, shape = 47, i = index, a = EIP_p[1], b = EIP_p[2], c = EIP_p[3], t0 = EIP_p[4])
   if(v_EIP == TRUE){
@@ -554,7 +555,8 @@ run_SMFA_model <- function(temp,
            temp = unique_t[index, "temp"],
            DTR = unique_t[index, "DTR"],
            bt = unique_t[index, "bt"],
-           p_ind = unique_t[index, "p_ind"])
+           p_ind = unique_t[index, "p_ind"],
+           study = unique_t[index, "study"])
   return(out_mc)
 }
 
@@ -565,9 +567,8 @@ gen_delta <- function(fit, temp){
     (1/(1+exp(-(rstan::extract(fit, "a_delta_S")[[1]] * temp^2 + 
                   rstan::extract(fit, "b_delta_S")[[1]] * temp + 
                   rstan::extract(fit, "c_delta_S")[[1]]))))
-  out <- c(mean(placeholder), quantile(placeholder, c(0.5, 0.025, 0.975)))
-  names(out)[[1]] <- "mean"
-  return(out)
+  
+  return(c(mean(placeholder), quantile(placeholder, c(0.5, 0.025, 0.975))))
 }
 
 # calculating the delta values over different time-periods
@@ -583,7 +584,9 @@ run_diff_delta <- function(h,
                            mean_temp,
                            sd_temp,
                            v_EIP = TRUE,
-                           d = 0.1){
+                           d = 0.1,
+                           study_fix_effect = FALSE,
+                           delta_study = NULL){
   
   # rather than hours should this be the time until the same % of the sporogony is complete?
   # delta estimation
@@ -640,11 +643,19 @@ run_diff_delta <- function(h,
     u_t_in <- unique_t_DTR[(u_l+1):nrow(unique_t_DTR),]
   }
   
+  if(study_fix_effect == TRUE){
+    delta_inds <- which(unique_t_DTR$study != 1)
+    unique_t_DTR$delta[delta_inds] <- unique_t_DTR$delta[delta_inds] + delta_study[(unique_t_DTR$study[delta_inds] - 1)]
+    unique_t_DTR[unique_t_DTR$delta > 1, "delta"] <- 1
+    unique_t_DTR[unique_t_DTR$delta < 0, "delta"] <- 0
+    }
+  
   if(v_EIP == TRUE){
     out_mc <- as.data.frame(bind_rows(mapply(run_SMFA_model, 
                                              temp = u_t_in[,"temp"], 
                                              DTR = u_t_in[,"DTR"], 
                                              bt = u_t_in[,"bt"],
+                                             study = u_t_in[,"study"],
                                              p_ind = u_t_in[,"p_ind"], 
                                              c = u_t_in[,"c"], SIMPLIFY = FALSE,
                                              MoreArgs = list(unique_t = unique_t_DTR, v_EIP = TRUE)))) # p_ind = 2 so this model is with the median mean EIP 
@@ -653,6 +664,7 @@ run_diff_delta <- function(h,
                                              temp = u_t_in[,"temp"], 
                                              DTR = u_t_in[,"DTR"], 
                                              bt = u_t_in[,"bt"],
+                                             study = u_t_in[,"study"],
                                              p_ind = u_t_in[,"p_ind"], 
                                              c = u_t_in[,"c"], 
                                              rate = u_t_in[,"rate"],
@@ -673,13 +685,15 @@ run_diff_delta <- function(h,
 
 # functions to calculate the maximum likelihoods
 calc_ll_DTR <- function(s_totals_ = s_totals_l, out){
-  index <- match(interaction(round(s_totals_$DPI, digits = 1), s_totals_$temp, s_totals_$bt, s_totals_$DTR), interaction(round(out$DPI, digits = 1), out$temp, out$bt, out$DTR))
+  index <- match(interaction(round(s_totals_$DPI, digits = 1), s_totals_$temp, s_totals_$bt, s_totals_$DTR, s_totals_$study), 
+                 interaction(round(out$DPI, digits = 1), out$temp, out$bt, out$DTR, out$study))
   p <- out[index, "s_prev"]
   ll <- dbinom(x = s_totals_[,"positive"], size = s_totals_[,"sample"], prob = p, log = TRUE)
   return(ll)
 }
 
 calc_ll_all <- function(delta_vt_in, EIP_vt_in, delta_fun_in, min_h = 1, max_h = 24, s_h = 1, v_EIP_in = TRUE){
+
   likelihoods <- bind_rows(lapply(seq(min_h, max_h, s_h), function(x){
     out_fc <- NULL
     attempt <- 0
@@ -707,7 +721,38 @@ calc_ll_all <- function(delta_vt_in, EIP_vt_in, delta_fun_in, min_h = 1, max_h =
   return(likelihoods)
 }
 
-calc_ll_ml <- function(x, delta_vt_in, EIP_vt_in, delta_fun_in, v_EIP_in = TRUE){
+
+calc_ll_ml_mean_delta <- function(params, delta_vt_in, EIP_vt_in, delta_fun_in, v_EIP_in = TRUE){
+  x <- 24
+  delta_study_in <- params[1:length(params)]
+  
+  out_fc <- NULL
+  attempt <- 0
+  while(is.null(out_fc) && attempt <= 10){
+    attempt <- attempt + 1
+    try(
+      out_fc <- run_diff_delta(h = x, 
+                               u_l = u_l, 
+                               delta_vt = delta_vt_in, 
+                               EIP_vt = EIP_vt_in, 
+                               delta_fun = delta_fun_in, 
+                               unique_t_DTR = unique_t_DTR,  
+                               fit = fit, 
+                               mean_temp = mean_temp, 
+                               sd_temp = sd_temp,
+                               v_EIP = v_EIP_in,
+                               study_fix_effect = TRUE,
+                               delta_study = delta_study_in)
+    )
+  }
+  l <- sum(calc_ll_DTR(out = out_fc))
+  rm(list = c("attempt", "out_fc"))
+  return(l * -1) # because optim function
+}
+
+calc_ll_ml <- function(params, delta_vt_in, EIP_vt_in, delta_fun_in, v_EIP_in = TRUE){
+  x <- params[1]
+  delta_study_in <- params[2:length(params)]
   
   out_fc <- NULL
   attempt <- 0
@@ -723,7 +768,9 @@ calc_ll_ml <- function(x, delta_vt_in, EIP_vt_in, delta_fun_in, v_EIP_in = TRUE)
                                fit = fit, 
                                mean_temp = mean_temp, 
                                sd_temp = sd_temp,
-                               v_EIP = v_EIP_in)
+                               v_EIP = v_EIP_in,
+                               study_fix_effect = TRUE,
+                               delta_study = delta_study_in)
     )
   }
   l <- sum(calc_ll_DTR(out = out_fc))
