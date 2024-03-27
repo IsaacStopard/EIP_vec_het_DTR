@@ -471,10 +471,28 @@ calc_MAE <- function(data = spz_data$raw, pred, v1 = "tot_p", v2 = "EIR", year_i
   return(mean(abs(data[, v1] - pred[inds, v2])))
 }
 
+calc_auc <- function(data = spz_data$raw, year_in = 2017, pred){
+  data <- subset(data, year > year_in) %>% as.data.frame()
+  inds <- match(data$Date, pred$date)
+  
+  data$pred_z <- pred[inds, "z"]
+  p <- c()
+  pred_z <- c()
+  for(i in 1:nrow(data)){
+    p <- c(p, rep(1, data[i, "tot_p"]))
+    pred_z <- c(pred_z, rep(data[i, "pred_z"], data[i, "tot_p"]))
+    p <- c(p, rep(0, (data[i, "tot"] - data[i, "tot_p"])))
+    pred_z <- c(pred_z, rep(data[i, "pred_z"], (data[i, "tot"] - data[i, "tot_p"])))
+  }
+  
+  return(auc(roc(p, pred_z)))
+  
+}
+
 for(i in 1:nrow(combs)){
   combs[i, "s_HMTP"] <- round(pred_ll_v_M_t[[i]]$minimum, digits = 2)
   combs[i, "log-likelihood"] <- - round(pred_ll_v_M_t[[i]]$objective, digits = 2)
-  combs[i, "MAE_z"] <- round(calc_MAE(data = spz_data$raw, pred = pred_vals[[i]], v1 = "z", v2 = "s_prev", year_in = 2017), digits = 2)
+  combs[i, "auc_z"] <- round(calc_auc(data = spz_data$raw, pred = pred_vals[[i]], year_in = 2017), digits = 2)
   combs[i, "MAE_EIR"] <- round(calc_MAE(data = spz_data$raw, pred = pred_vals[[i]], v1 = "tot_p", v2 = "EIR", year_in = 2017), digits = 2)
 }
 
