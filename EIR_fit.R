@@ -148,7 +148,15 @@ c_mu <- mean(temp_data$daily_mu)
 # fitted sporozoite prevalence, HBR and EIR data
 spz_data <- readRDS(file = "data/format_spz_data.rds")
 spz_data$raw$day_plot <- difftime(spz_data$raw$Date, "2015-01-01", units = c("days"))
-spline_ma <- spz_data$pred_m_day
+spz_data$raw_m$day_plot <- difftime(spz_data$raw_m$Date, "2015-01-01", units = c("days"))
+
+spline_ma <- subset(spz_data$pred_m, Location == "IN") %>% mutate(day = day_y)
+
+# spline_ma_pad <- left_join(data.frame(day = seq(0, max(spline_ma$day))),
+#                       spline_ma[,c("p", "day")], by = c("day")) %>% 
+#   mutate(p = ifelse(is.na(p), mean(spline_ma$p), p))
+  
+
 
 # replicating the same mosquito seasonality for each year
 spline_ma_pad <- spline_ma[rep(seq(1, nrow(spline_ma)),5),] %>% mutate(day_o = day,
@@ -157,9 +165,9 @@ spline_ma_pad <- spline_ma[rep(seq(1, nrow(spline_ma)),5),] %>% mutate(day_o = d
 # adult mosquito emergence rates
 beta_c <- diff(log(spline_ma_pad$p)) + c_mu # mosquito birth rates assuming a constant mortality rate
 
+beta_daily <- diff(log(spline_ma_pad$p)) + subset(temp_data, hour == 0)$daily_mu[1:(nrow(spline_ma_pad)-1)]
+beta_monthly <- diff(log(spline_ma_pad$p)) + subset(temp_data, hour == 0)$monthly_mu[1:(nrow(spline_ma_pad)-1)]
 
-beta_daily <- diff(log(spline_ma_pad$p)) + subset(temp_data, hour == 0)$daily_mu[-c((nrow(subset(temp_data, hour == 0)) - 1), nrow(subset(temp_data, hour == 0)))]
-beta_monthly <- diff(log(spline_ma_pad$p)) + subset(temp_data, hour == 0)$monthly_mu[-c((nrow(subset(temp_data, hour == 0)) - 1), nrow(subset(temp_data, hour == 0)))]
 
 
 beta_fun_c <- approxfun(x = seq(0, (nrow(spline_ma_pad)-2)), y = beta_c, yright = NA, yleft = NA, method = "constant")
@@ -310,7 +318,7 @@ run_malaria_model <- function(scale_m,
 return(out %>% as.data.frame())
 }
 
-ov_stan <- median(rstan::extract(spz_data$t_EIR$stanfit, "reciprocal_dispersion")$reciprocal_dispersion)
+#ov_stan <- median(rstan::extract(spz_data$t_EIR$stanfit, "reciprocal_dispersion")$reciprocal_dispersion)
 
 # function to calculate the likelihoods
 calc_ll <- function(par, # overdispersion parameter
@@ -318,11 +326,12 @@ calc_ll <- function(par, # overdispersion parameter
                     a,
                     r,
                     v_M,
-                    f_EIR,
-                    v_ov,
-                    ov_in = ov_stan,
+                    #f_EIR,
+                    #v_ov,
+                    #ov_in = ov_stan,
                     data = spz_data$raw,
-                    max_year = 2017
+                    min_year = 2015, # only fit to data from 2017
+                    max_year = 2018
                     ){
   
   if(v_M == TRUE){
@@ -336,13 +345,15 @@ calc_ll <- function(par, # overdispersion parameter
     scale_HMTP <- par[1]
   }
   
-  if(v_ov == TRUE){
-    ov <- par[2]
-  } else{
-    ov <- ov_in
-  }
+  ov <- par[2]
   
-  data <- subset(data, year <= max_year) %>% as.data.frame()
+  # if(v_ov == TRUE){
+  #  
+  # } else{
+  #   ov <- ov_in
+  # }
+  
+  data <- subset(data, year > min_year & year < max_year) %>% as.data.frame()
   
   m_sim <- run_malaria_model(scale_m = scale_m,
                              scale_HMTP = scale_HMTP,
@@ -351,32 +362,12 @@ calc_ll <- function(par, # overdispersion parameter
                              a = a
                              )
   
-  if(f_EIR == "both"){
-    data <- data %>% mutate(pred_EIR = as.vector(m_sim[match(data$day_plot, m_sim$time),"EIR"]),
-                          log_likelihood = dnbinom(x = tot_p, size = ov, mu = pred_EIR, log = TRUE),
-                          pred_z = as.vector(m_sim[match(data$day_plot, m_sim$time),"z"]),
-                          log_likelihood_spz = dbinom(x = tot_p, size = tot, prob = pred_z, log = TRUE))
-    
-    ll <- sum(data$log_likelihood) # needs to be negative because it is minimised by the optim function
-    ll_z <- sum(data$log_likelihood_spz)
-    
-    out <- ll + ll_z
-  } else if(f_EIR == FALSE){
-    data <- data %>% mutate(pred_z = as.vector(m_sim[match(data$day_plot, m_sim$time),"z"]),
+  data <- data %>% mutate(pred_z = as.vector(m_sim[match(data$day_plot, m_sim$time),"z"]),
                             log_likelihood_spz = dbinom(x = tot_p, size = tot, prob = pred_z, log = TRUE))
     
-    ll_z <- sum(data$log_likelihood_spz)
+    ll_z <- -sum(data$log_likelihood_spz)
     
-    out <- ll_z
-  } else if(f_EIR == TRUE){
-    data <- data %>% mutate(pred_EIR = as.vector(m_sim[match(data$day_plot, m_sim$time),"EIR"]),
-                            log_likelihood = dnbinom(x = tot_p, size = ov, mu = pred_EIR, log = TRUE))
-    
-    ll <- sum(data$log_likelihood) # needs to be negative because it is minimised by the optim function
-    
-    out <- ll
-  }
-  return(-out) 
+  return(ll_z) 
 }
 
 combs <- expand.grid(model = c(1, 2, 3),
@@ -399,7 +390,7 @@ v_list <- c("temp_fun", "temp_fun_month",
             "calc_ll", 
             "spz_data", 
             "classic_malaria_model", 
-            "ov_stan", 
+            #"ov_stan", 
             "combs_in_v_HMTP")
 
 cl <- makeCluster(5)
@@ -417,9 +408,9 @@ pred_ll_v_M_t <- foreach(i=1:nrow(combs_in_v_HMTP),
            model = combs_in_v_HMTP[i, "model"],
            r = combs_in_v_HMTP[i, "r"],
            a = combs_in_v_HMTP[i, "a"],
-           v_ov = FALSE,
+           #v_ov = FALSE,
            v_M = FALSE,
-           f_EIR = FALSE,
+           #f_EIR = FALSE,
            max_year = 2017,
            data = spz_data$raw,
            #control = list(tol = 1e-04)
@@ -427,10 +418,10 @@ pred_ll_v_M_t <- foreach(i=1:nrow(combs_in_v_HMTP),
            )
 }
 saveRDS(pred_ll_v_M_t, 
-        file = "results/EIR_fit_scale_hmtp_uni_day.rds")
+        file = "results/EIR_fit_scale_hmtp_uni_day_n.rds")
 stopCluster(cl)
 
-pred_ll_v_M_t <- readRDS(file = "results/EIR_fit_scale_hmtp_uni_day.rds")
+pred_ll_v_M_t <- readRDS(file = "results/EIR_fit_scale_hmtp_uni_day_n.rds")
 
 cl <- makeCluster(5)
 registerDoParallel(cl)
@@ -448,10 +439,10 @@ pred_vals <- foreach(i=1:nrow(combs_in_v_HMTP),
   )
 }
 saveRDS(pred_vals, 
-        file = "results/EIR_fit_scale_hmtp_pred_day.rds")
+        file = "results/EIR_fit_scale_hmtp_pred_day_n.rds")
 stopCluster(cl)
 
-pred_vals <- readRDS(file = "results/EIR_fit_scale_hmtp_pred_day.rds")
+pred_vals <- readRDS(file = "results/EIR_fit_scale_hmtp_pred_day_n.rds")
 
 for(i in 1:length(pred_vals)){
   pred_vals[[i]] <- subset(pred_vals[[i]], year != 2015 & year != 2019 & time %% 1 == 0)
@@ -461,9 +452,13 @@ for(i in 1:length(pred_vals)){
   pred_vals[[i]] <- pred_vals[[i]][-nrow(pred_vals[[i]]),] # removing the last row
 }
 
-spz_data$raw$z <- (spz_data$raw$tot_p / spz_data$raw$tot) * 100
 
-calc_MAE <- function(data = spz_data$raw, pred, v1 = "tot_p", v2 = "EIR", year_in = 2017){
+spz_data$raw$z <- (spz_data$raw$tot_p / spz_data$raw$tot) * 100
+tot_hlc_m <- spz_data$raw_m %>% subset(Location = "IN") %>% group_by(Date, day_plot) %>% summarise(m_tot_hlc = mean(tot_hlc))
+spz_data$raw$tot_hlc <- unlist(unname(as.vector(tot_hlc_m[match(spz_data$raw$Date, tot_hlc_m$Date), "m_tot_hlc"])))
+spz_data$raw$EIR <- (spz_data$raw$tot_p / spz_data$raw$tot) * spz_data$raw$tot_hlc
+
+calc_MAE <- function(data = spz_data$raw, pred, v1 = "EIR", v2 = "EIR", year_in = 2017){
   
   data <- subset(data, year > year_in) %>% as.data.frame()
   inds <- match(data$Date, pred$date)
@@ -493,7 +488,7 @@ for(i in 1:nrow(combs)){
   combs[i, "s_HMTP"] <- round(pred_ll_v_M_t[[i]]$minimum, digits = 2)
   combs[i, "log-likelihood"] <- - round(pred_ll_v_M_t[[i]]$objective, digits = 2)
   combs[i, "auc_z"] <- round(calc_auc(data = spz_data$raw, pred = pred_vals[[i]], year_in = 2017), digits = 2)
-  combs[i, "MAE_EIR"] <- round(calc_MAE(data = spz_data$raw, pred = pred_vals[[i]], v1 = "tot_p", v2 = "EIR", year_in = 2017), digits = 2)
+  combs[i, "MAE_z"] <- round(calc_MAE(data = spz_data$raw, pred = pred_vals[[i]], v1 = "z", v2 = "s_prev", year_in = 2017), digits = 2)
 }
 
 combs <- combs %>% mutate(model = case_when(model == 1 ~ "DTR-dependent",
@@ -508,7 +503,7 @@ write.csv(combs, file = "results/EIR_fit.csv")
 
 adjust_date <- function(df){
   
-  df <- df[rep(seq(1, nrow(df)),5),] %>% mutate(day_o = day,
+  df <- df[rep(seq(1, nrow(df)),5),] %>% mutate(day_o = day_y,
                                                 day = seq(0, (n()-1)),
                                                 Date = lubridate::ymd_hms(paste(2015, 01, 01, 00, 00, 00, sep = " ")) + lubridate::days(day),
                       date_p = as.Date("2016-12-31", format = "%Y-%m-%d") + day,
@@ -517,9 +512,14 @@ adjust_date <- function(df){
   return(df)
 }
 
-spz_data$pred_s_day <- adjust_date(spz_data$pred_s_day)
-spz_data$pred_m_day <- adjust_date(spz_data$pred_m_day)
-spz_data$pred_EIR_day <- adjust_date(spz_data$pred_EIR_day)
+spz_data$pred_s_day <- adjust_date(spz_data$pred_s)
+
+spz_data$pred_m_day <- rbind(adjust_date(subset(spz_data$pred_m, Location == "IN")) %>% mutate(Location = "Inside"),
+                             adjust_date(subset(spz_data$pred_m, Location == "OUT")) %>% mutate(Location = "Outside"))
+
+ggplot(data = spz_data$pred_m_day, aes(x = Date, y = p, group = Location)) + geom_line()
+
+#spz_data$pred_EIR_day <- adjust_date(spz_data$pred_EIR_day)
 
 spz_data$raw <- spz_data$raw %>% mutate(date_p = as.Date("2016-12-31", format = "%Y-%m-%d") + day_y,
                                         train = ifelse(year == 2018, "testing", "training"),
@@ -528,67 +528,68 @@ spz_data$raw <- spz_data$raw %>% mutate(date_p = as.Date("2016-12-31", format = 
                                         upper_p = DescTools::BinomCI(x = tot_p, n = tot, conf.level = 0.95,
                                                                      method = c("clopper-pearson"), sides = c("two.sided"))[,"upr.ci"])
 
+spz_data$raw_m <- spz_data$raw_ %>% mutate(date_p = as.Date("2016-12-31", format = "%Y-%m-%d") + day_y,
+                                        train = ifelse(year == 2018, "testing", "training"))
+
 
 mos_plot <- ggplot() +
   xlab("Date") +
   ylab("HBR per person per day") +
-  geom_line(data = spz_data$pred_m_day, aes(x = Date, y = p, col = "GAM"), linewidth = 1.25) +
-  geom_ribbon(data = spz_data$pred_m_day, aes(x = Date, ymin = lower, ymax = upper), alpha = 0.1) +
+  geom_line(data = spz_data$pred_m_day, aes(x = Date, y = p, col = Location, group = Location), linewidth = 1.25) +
+  geom_ribbon(data = spz_data$pred_m_day, aes(x = Date, ymin = lower, ymax = upper, fill = Location), alpha = 0.1) +
   theme_bw() + theme(text = element_text(size = 18),
                      legend.text = element_text(size = 10),
                      legend.title = element_text(size = 12)) +
-  scale_colour_manual(name = "Model", values = c("#000000")) +
-  scale_shape_manual(name = "Data", values = c(16, 15)) +
-  scale_y_continuous(limits = c(0, 200)) +
-  #scale_fill_manual(name = "year", values = c("#000000", "#0072B2", "#009E73")) +
+  scale_colour_manual(name = "Location", values = c("#000000", "grey50")) +
+  scale_y_continuous(limits = c(0, 450)) +
+  scale_fill_manual(name = "Location", values = c("#000000", "grey50")) +
   coord_cartesian(xlim = as.POSIXct(c("01/01/2016", "01/01/2019"), format = "%d/%m/%Y")) +
-  geom_point(data = spz_data$raw, aes(x = Date, y = tot, group = factor(year), shape = train), size = 4, alpha = 0.7)
+  geom_point(data = spz_data$raw_m %>% mutate(Location = ifelse(Location == "IN", "Inside", "Outside")), 
+             aes(x = Date, y = tot_hlc, group = factor(year), col = Location), size = 4, alpha = 0.8) +
+  theme(legend.position = c(0.8, 0.9), legend.box = "horizontal")
   
 spz_plot <- ggplot() +
   xlab("Date") +
   ylab("Sporozoite prevalence") +
-  geom_ribbon(data = spz_data$pred_s_day, aes(x = Date, ymin = lower, ymax = upper), alpha = 0.1) +
+  #geom_ribbon(data = spz_data$pred_s_day, aes(x = Date, ymin = lower, ymax = upper), alpha = 0.1) +
   geom_pointrange(data = spz_data$raw, aes(x = Date, y = tot_p/tot, ymin = lower_p, ymax = upper_p, group = factor(year), shape = train), 
-                  size = 0.95, alpha = 0.7) +
-  geom_line(data = spz_data$pred_s_day, aes(x = Date, y = p, col = "GAM"), linewidth = 1.25) +
+                  size = 0.95, alpha = 0.85) +
+  #geom_line(data = spz_data$pred_s_day, aes(x = Date, y = p, col = "GAM"), linewidth = 1.25) +
   theme_bw() + theme(text = element_text(size = 18),
                      legend.text = element_text(size = 10),
                      legend.title = element_text(size = 12)) +
-  scale_colour_manual(name = "Model", values = c("#0072B2", "#009E73", "#E69F00", "#000000")) +
+  scale_colour_manual(name = "Model", values = c("#0072B2", "#009E73", "#E69F00")) +
   scale_shape_manual(name = "Data", values = c(16, 15)) +
   #scale_fill_manual(name = "year", values = c("#000000", "#0072B2", "#009E73")) +
   coord_cartesian(xlim = as.POSIXct(c("01/01/2016", "01/01/2019"), format = "%d/%m/%Y")) +
   scale_y_sqrt(limits = c(0, 1), breaks = seq(0, 1, 0.2), labels = scales::percent) +
   geom_line(data = pred_vals[[10]], aes(x = date, y = z, group = factor(year), col = "DTR-dependent"), linewidth = 1.25) +
   geom_line(data = pred_vals[[11]], aes(x = date, y = z, col = "DTR-independent"), linewidth = 1.25) +
-  geom_line(data = pred_vals[[12]], aes(x = date, y = z, group = factor(year), col = "Constant"), linewidth = 1.25) 
+  geom_line(data = pred_vals[[12]], aes(x = date, y = z, group = factor(year), col = "Constant"), linewidth = 1.25) +
+  theme(legend.position = c(0.15, 0.85), legend.box = "horizontal")
 
-EIR_plot <- ggplot() +
-  xlab("Date") +
-  ylab("EIR per person per day") +
-  geom_ribbon(data = spz_data$pred_EIR_day, aes(x = Date, ymin = lower, ymax = upper), alpha = 0.1) +
-  geom_point(data = spz_data$raw, aes(x = Date, y = tot_p, group = factor(year), shape = train), size = 4, alpha = 0.7) +
-  geom_line(data = spz_data$pred_EIR_day, aes(x = Date, y = EIR, col = "GAM"), linewidth = 1.25) +
-  theme_bw() + theme(text = element_text(size = 18),
-                     legend.text = element_text(size = 10),
-                     legend.title = element_text(size = 12)) +
-  scale_colour_manual(name = "Model", values = c("#0072B2", "#009E73", "#E69F00", "#000000")) +
-  scale_shape_manual(name = "Data", values = c(16, 15)) +
-  #scale_fill_manual(name = "year", values = c("#000000", "#0072B2", "#009E73")) +
-  coord_cartesian(xlim = as.POSIXct(c("01/01/2016", "01/01/2019"), format = "%d/%m/%Y")) +
-  geom_line(data = pred_vals[[10]], aes(x = date, y = EIR, group = factor(year), col = "DTR-dependent"), linewidth = 1.25) +
-  geom_line(data = pred_vals[[11]], aes(x = date, y = EIR, col = "DTR-independent"), linewidth = 1.25) +
-  geom_line(data = pred_vals[[12]], aes(x = date, y = EIR, group = factor(year), col = "Constant"), linewidth = 1.25) 
+# EIR_plot <- ggplot() +
+#   xlab("Date") +
+#   ylab("EIR per person per day") +
+#   geom_ribbon(data = spz_data$pred_EIR_day, aes(x = Date, ymin = lower, ymax = upper), alpha = 0.1) +
+#   geom_point(data = spz_data$raw, aes(x = Date, y = tot_p, group = factor(year), shape = train), size = 4, alpha = 0.7) +
+#   geom_line(data = spz_data$pred_EIR_day, aes(x = Date, y = EIR, col = "GAM"), linewidth = 1.25) +
+#   theme_bw() + theme(text = element_text(size = 18),
+#                      legend.text = element_text(size = 10),
+#                      legend.title = element_text(size = 12)) +
+#   scale_colour_manual(name = "Model", values = c("#0072B2", "#009E73", "#E69F00", "#000000")) +
+#   scale_shape_manual(name = "Data", values = c(16, 15)) +
+#   #scale_fill_manual(name = "year", values = c("#000000", "#0072B2", "#009E73")) +
+#   coord_cartesian(xlim = as.POSIXct(c("01/01/2016", "01/01/2019"), format = "%d/%m/%Y")) +
+#   geom_line(data = pred_vals[[10]], aes(x = date, y = EIR, group = factor(year), col = "DTR-dependent"), linewidth = 1.25) +
+#   geom_line(data = pred_vals[[11]], aes(x = date, y = EIR, col = "DTR-independent"), linewidth = 1.25) +
+#   geom_line(data = pred_vals[[12]], aes(x = date, y = EIR, group = factor(year), col = "Constant"), linewidth = 1.25) 
 
-png(file = "results/figures/sample_spz_m_EIR.png", width = 1000, height = 1000)
+png(file = "results/figures/sample_spz_m_EIR.png", width = 800, height = 800)
 plot_grid(
-  plot_grid(
-    mos_plot + theme(legend.position = "none"),
-    spz_plot + theme(legend.position = "none"),
-    EIR_plot + theme(legend.position = "none"),
+    mos_plot,
+    spz_plot,
   ncol = 1,
-  labels = c("A", "B", "C")
-  ),
-  get_legend(spz_plot), ncol = 2, rel_widths = c(1, 0.2)
+  labels = c("A", "B")
 )
 dev.off()
