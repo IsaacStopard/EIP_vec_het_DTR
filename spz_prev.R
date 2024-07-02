@@ -5,9 +5,12 @@ library(rstanarm); library(patchwork)
 
 # sporozoite prevalence
 # ignore the household and location when calculating the sporozoite prevalence
-df <- read_excel(path = "data/sporozoite_prev_BF.xlsx",
-           sheet = "Data") %>% 
-  subset(Village == "Tiefora" & Method != "MET") 
+df <- read.csv(file = "data/sporozoite_prev_BF_T.csv")
+# read_excel(path = "data/sporozoite_prev_BF.xlsx",
+#            sheet = "Data") %>% 
+#   subset(Village == "Tiefora" & Method != "MET") 
+
+#write.csv(df, file = "data/sporozoite_prev_BF_T.csv")
 
 m_d <- min(df$Date)
 
@@ -21,9 +24,12 @@ df_plot <- df %>% group_by(Date, day, day_y, month, year) %>% summarise(tot_p = 
                                                                  tot = n())
 
 # human biting rate
-df_c <- read_excel(path = "data/field and sporozoites_MiRA.xlsx",
-                   sheet = "F1_field_.data16-19_mira") %>% subset(Village == "Tiefora" & Method != "MET") %>% 
-  subset(Date <= max(df$Date))
+df_c <- read.csv(file = "data/field and sporozoites_MiRA_T.csv")
+  # read_excel(path = "data/field and sporozoites_MiRA.xlsx",
+  #                  sheet = "F1_field_.data16-19_mira") %>% subset(Village == "Tiefora" & Method != "MET") %>% 
+  # subset(Date <= max(df$Date))
+
+  
 
 df_c[which(df_c$Date == "2017-11-10"),"Date"] <- as.Date("2017-11-09", format = "%Y-%m-%d")
   
