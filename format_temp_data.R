@@ -45,6 +45,7 @@ temp_data <- rbind(rio::import_list(file = "data/FW_EHT_data_analysis/16_08_to_1
 
 temp_data[which(temp_data$Location == "Intdoor"), "Location"] <- "Indoor"
 
+# getting the start of the day and the start of night
 temp_data[,"night_start_Ti"] <- suncalc::getSunlightTimes(date = temp_data$date, lat = 10.633333, lon = -4.55, keep = c("night"))$night
 temp_data[,"night_start_Te"] <- suncalc::getSunlightTimes(date = temp_data$date, lat = 10.673024326627694, lon = -4.817461017395222, keep = c("night"))$night
 temp_data[,"night_end_Ti"] <- suncalc::getSunlightTimes(date = temp_data$date, lat = 10.633333, lon = -4.55, keep = c("nightEnd"))$nightEnd
@@ -71,7 +72,7 @@ hourly_temp_data <- rbind(temp_data %>% group_by(f_date, Site, Location, Hut) %>
                             mutate(date = as.Date(f_date),
                                    hour = hour(f_date)) %>% mutate(Hut = "mean")) 
 
-
+# ERA5 data
 BF_data <- as.data.frame(read_csv(file = "data/ERA5/t2m_2020_BF.csv") %>% #filter(time >= min(hourly_temp_data$f_date) & time <= max(hourly_temp_data$f_date)) %>% 
                            mutate(temp = t2m -  273.5,
                                   min_temp = NA,

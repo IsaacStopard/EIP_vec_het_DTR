@@ -20,20 +20,6 @@ ggplot(data = rbind(bt_density_outdoor %>% mutate(location = "Outdoor"),
   scale_y_continuous(limits = c(0,0.25))
 dev.off()
 
-##########################
-### simulating the EIP ###
-##########################
-
-# getting the mean EIP values
-mean_EIP <- readRDS(file = "data/mean_EIP.rds") 
-
-# separate EIP functions for the posterior quantiles - different mean values
-# assumes a linear interpolation for values between simulated values
-EIP_fun <- vector(mode = "list", length = 3)
-EIP_fun[[1]] <- approxfun(mean_EIP$temp, mean_EIP$`2.5%`, yleft = max(mean_EIP$`2.5%`), yright = min(mean_EIP$`2.5%`))
-EIP_fun[[2]] <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`), yright = min(mean_EIP$`50%`)) # extrapolating beyond
-EIP_fun[[3]] <- approxfun(mean_EIP$temp, mean_EIP$`97.5%`, yleft = max(mean_EIP$`97.5%`), yright = min(mean_EIP$`97.5%`))
-
 ##### temperature data #####
 temp_data_rds <- readRDS(file = "data/temp_data.rds")
 n_na <- temp_data_rds$n_na
@@ -393,7 +379,7 @@ ggplot(data = u_f_b_plot,
   theme_bw() + theme(text = element_text(size = 18)) +
   scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.2), limits = c(0, 1)) +
   scale_x_continuous(breaks = seq(0, 22, 2)) +
-  ylab("Predicted hourly HMTP") +
+  ylab("Predicted HMTP for each hourl and day of the month") +
   xlab("Hour of infection") +
   scale_fill_manual(values = c("#56B4E9","#CC79A7",  "#E69F00"), name = "Temperature\ndata") +
   scale_colour_manual(values = c("#56B4E9","#CC79A7",  "#E69F00"), name = "Temperature\ndata")

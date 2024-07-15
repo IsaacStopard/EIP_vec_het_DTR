@@ -5,7 +5,7 @@
 # Notes: 
 rm(list = ls())
 
-source(file = "utils/data_functions.R"); source(file = "utils/model_functions.R")
+source(file = "utils/model_functions.R")
 source(file = "read_libraries_data.R")
 
 ###########

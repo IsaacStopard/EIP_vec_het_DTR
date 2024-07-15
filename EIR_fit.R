@@ -1,8 +1,7 @@
 rm(list = ls())
 
+source(file = "utils/model_functions.R"); source(file = "read_bt_data.R");
 source(file = "read_libraries_data.R")
-source(file = "utils/data_functions.R"); source(file = "utils/model_functions.R"); source(file = "read_bt_data.R");
-
 ###########################################
 ##### reading in the temperature data #####
 ###########################################
@@ -43,10 +42,6 @@ temp_fun_month <- approxfun(x = seq(0, nrow(temp_data)-1)/24, y = temp_data$mont
 ### EIP thermal performance curve values ###
 ############################################
 
-# getting the mean EIP values
-mean_EIP <- readRDS(file = "data/mean_EIP.rds") 
-
-# separate EIP functions for the posterior quantiles - different mean values
 # assumes a linear interpolation for values between simulated values
 EIP_fun <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`), yright = min(mean_EIP$`50%`)) #vector(mode = "list", length = 3)
 
@@ -55,7 +50,6 @@ EIP_fun <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`),
 ######################################################################
 
 ##### DTR-dependent model #####
-
 delta_df <- expand.grid("date" = dates, "hour" = seq(0, 23.9, 0.1)) %>%
   mutate(days = difftime(date, "2015-01-01", units = "days")) %>% subset(date < "2019-01-01")
 
