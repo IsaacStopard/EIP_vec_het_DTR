@@ -13,20 +13,9 @@ source(file = "read_libraries_data.R")
 ###########
 
 # getting the EIP value
-params_temp <- rstan::extract(fit)
-
-EIP_index <- get_EIP(params_temp, scaled_temps_all, 10000)
-
-EIP_10 <- gen_quantiles(EIP_index$EIP_10, temps_all)
-EIP_50 <- gen_quantiles(EIP_index$EIP_50, temps_all)
-EIP_90 <- gen_quantiles(EIP_index$EIP_90, temps_all)
-
-# calculating the mean EIP
-index <- seq(1, length(temps_all))
-mean_EIP <- as.data.frame(t(sapply(index[1:10], calc_mean_EIP, EIP_index = EIP_index)))
-mean_EIP$temp <- temps_all
-#saveRDS(mean_EIP, file = "data/mean_EIP.rds")
-mean_EIP <- readRDS(file = "data/mean_EIP.rds")
+EIP_10 <- gen_quantiles(EIP_index_all$EIP_10, temps_all)
+EIP_50 <- gen_quantiles(EIP_index_all$EIP_50, temps_all)
+EIP_90 <- gen_quantiles(EIP_index_all$EIP_90, temps_all)
 
 ########################
 ### fitting the data ###
@@ -54,8 +43,6 @@ m_data <- readRDS(file = "data/DTR/murdock_a_g_spz.rds") %>% mutate(data_source 
 s_data <- rbind(s_data_DTR %>% mutate(data_source = "novel"), w_data, e_data, m_data) %>% index_fun(variable = "temp", v_out = "index_temp")
 
 s_totals_test <- generate_prevalence_DTR(s_data)
-
-s_totals_train <- generate_prevalence_DTR(s_data_C[,-c(1)] %>% index_fun(variable = "temp", v_out = "index_temp")) # no infection for experiment 1 at 19 degrees
 
 ########################################
 ### generating the SMFA temperatures ###
@@ -103,22 +90,10 @@ for(i in 1:length(delta_df)){
 delta_df <- bind_rows(delta_df)
 colnames(delta_df) <- c("temp", "scaled_temp", "mean", "median", "lower", "upper")
 
-####################
-### EIP function ###
-####################
-# assumes a linear interpolation for missing values
-# separate EIP functions for the posterior quantiles - different mean values
-EIP_fun <- vector(mode = "list", length = 3)
-EIP_fun[[1]] <- approxfun(mean_EIP$temp, mean_EIP$`2.5%`, yleft = max(mean_EIP$`2.5%`), yright = min(mean_EIP$`2.5%`))
-EIP_fun[[2]] <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`), yright = min(mean_EIP$`50%`)) # extrapolating beyond
-EIP_fun[[3]] <- approxfun(mean_EIP$temp, mean_EIP$`97.5%`, yleft = max(mean_EIP$`97.5%`), yright = min(mean_EIP$`97.5%`))
-
 ###########################################################################
 ### running the model with time-varying temperature for all experiments ###
 ###########################################################################
 max_time <- 70
-
-s_totals_c <- s_totals_train # just the constant 
 
 # delta values - (1) mean temperature, (2) mean, min or max temperature over a range of times and (3) mean, min or max delta over a range of times
 # EIP values - (1) mean temperature, (2) fluctuating temperature and (3) mean parasite development rate
@@ -168,7 +143,10 @@ for(i in 1:u_l){
 
 unique_t_DTR$rate <- c(rates, rates)
 
-# calculating the likelihood
+######################################
+##### calculating the likelihood #####
+######################################
+
 # testing dataset
 s_totals_l <- generate_prevalence_DTR(s_data %>% mutate(study = 1))
 
@@ -267,7 +245,7 @@ pred_out <- lapply(seq(1, nrow(ml_in)), function(i){
   
 })
 
-saveRDS(pred_out, file = "data/pred_out_novel_data.rds")
+#saveRDS(pred_out, file = "data/pred_out_novel_data.rds")
 pred_out <- readRDS(file = "data/pred_out.rds")
 
 max_DPI <- left_join(unique(s_totals_l[,c("temp", "DTR", "bt")]), 
@@ -390,65 +368,6 @@ plot_grid(
 )
 dev.off()
 
-# png(file = "results/figures/DTR_plots.png", height = 1000, width = 700)
-# plot_grid(
-#     ggplot(data = subset(ml_df, EIP!="c" & delta_fun_in != "geom_m_delta"), 
-#            aes(y = delta, x = likelihood, fill = EIP)) + 
-#       geom_col(position = position_dodge(), alpha = 0.775) +
-#       theme_bw() + theme(text = element_text(size = 17)) +
-#       geom_text(aes(label = plot_h, x = likelihood, y = delta), position = position_dodge(width = 0.9), hjust = 1.25) +
-#       xlab("log likelihood") + scale_x_continuous(limits = c(-850, 0)) +
-#       scale_fill_manual(values = c("#009E73", "#56B4E9"), name = expression(paste("Method to\nestimate ", alpha)),
-#                       labels = c("a (mean)", "b (fluctuating)")) +
-#       ylab("Method to estimate the HMTP"),
-#  
-#   ggplot(data = s_totals_l %>% gather(key = "sim", value = "sim_s_prev", out_ma, out_mb) %>% 
-#            mutate(temp = paste0(temp,"°C"))) + 
-#     geom_errorbarh(aes(xmin = lower, xmax = upper, y = sim_s_prev, group = interaction(factor(DTR), factor(bt), factor(temp)), 
-#                        col = sim),
-#                    alpha = 0.25, size = 1) +
-#     geom_abline(slope = 1, intercept = 0, linetype = 2, size = 0.75) +
-#     geom_point(aes(x = prevalence, y = sim_s_prev, group = interaction(factor(DTR), factor(bt), factor(temp)), fill = sim), 
-#                size = 3, shape = 21,
-#                col = "grey50", alpha = 0.5) +
-#     geom_smooth(formula = y ~ x, method = "lm", se = FALSE, 
-#                 aes(x = prevalence, y = sim_s_prev, col = sim), size = 1.75) +
-#     theme_bw() + theme(text = element_text(size = 17)) +
-#     facet_wrap(~temp) +
-#     scale_colour_manual(name = expression(paste("Method to\nestimate ",alpha)), 
-#                         values = c("#009E73", "#56B4E9"),
-#                         labels = c("a (mean)", "b (fluctuating)")) + 
-#     scale_fill_manual(name = expression(paste("Method to\nestimate ",alpha)), 
-#                         values = c("#009E73", "#56B4E9"),
-#                         labels = c("a (mean)", "b (fluctuating)")) +
-#     scale_y_continuous(labels = scales::percent) +
-#     scale_x_continuous(labels = scales::percent) +
-#     xlab("Actual sporozoite prevalence") +
-#     ylab("Simulated sporozoite prevalence")
-#     ,
-#   
-#   ggplot() + 
-#     geom_pointrange(data = subset(s_totals_l, temp == 19) %>% mutate(temp = paste0(temp, "°C")), 
-#                     aes(x = DPI, y = prevalence, ymin = lower, ymax = upper,
-#                         fill = factor(DTR), size = sample, col = factor(DTR)), 
-#                     alpha = 0.875, shape = 21, ) +
-#     geom_line(data = out_mb%>% filter(temp == 19) %>% mutate(model = "b",
-#                                                              temp = paste0(temp, "°C")) , 
-#               aes(x = DPI, y = s_prev, col = factor(DTR)), 
-#               size = 2.5, alpha = 0.95) + 
-#     facet_wrap(~temp, scales = "free_x") +
-#     scale_size_continuous(range = c(0.5, 1.5), name = "sample") + 
-#     theme_bw() + theme(text = element_text(size = 17)) +
-#     scale_colour_manual(values = c("#D55E00", "#0072B2"), name = "DTR") +
-#     scale_fill_manual(values = c("#D55E00", "#0072B2"), name = "DTR") +
-#     ylab("Sporozoite prevalence") + xlab("Days post infection") +
-#     scale_y_continuous(labels = scales::percent, breaks = seq(0, 0.5, 0.1)),
-#   
-#   nrow = 3,
-#   labels = c("A", "B", "C")
-# )
-# dev.off()
-
 ########################
 ### explanatory plot ###
 ########################
@@ -540,89 +459,87 @@ dev.off()
 # )
 # dev.off()
 
-#################################################
-### running the model for higher temperatures ###
-#################################################
-
-# EIP models with different cutoff
-c_temps <- seq(35, 38)
-m_EIP_all <- bind_rows(sapply(c(Inf, c_temps), 
-                 function(c_temp){
-                   t <- seq(15, 45, 0.01)
-                   EIP <- data.frame("temp" = t,
-                                     "EIP" = EIP_fun[[2]](t), # to get the mean EIP
-                                     "m_EIP" = rep(c_temp, length(t)))
-                   EIP[which(t > c_temp), "EIP"] <- Inf
-                   return(EIP)
-                   }, 
-                 simplify = FALSE))
-png(file = "report/cutoff_sensitivity_PDF.png", height = 500, width = 850)
-ggplot(data = m_EIP_all, aes(x = temp, y = 47/EIP)) +
-  geom_line(size = 1.25) + theme_bw() + facet_wrap(~m_EIP) +
-  theme(text = element_text(size = 15)) +
-  xlab("Temperature (°C)") + ylab("Parasite development rate (shape / EIP)")
-dev.off()
-
-# EIP functions
-EIP_fun_l <- vector(mode = "list", length = length(c_temps) + 1)
-EIP_fun_l[[1]] <- EIP_fun[[2]]
-p <- data.frame("temp" = seq(15, 45, 0.01),
-                "EIP" = EIP_fun[[2]](seq(15, 45, 0.01)))
-
-for(i in 1:length(c_temps)){
-  place <- p[which(p$temp <= c_temps[i]),]
-  EIP_fun_l[[i+1]] <- approxfun(place$temp, place$EIP, yleft = max(mean_EIP$`50%`), yright = Inf, method = "linear")
-}
-
-# temperature functions
-g_temps <- c(32.5)
-temp_fun_l <- lapply(g_temps, function(i){
-  approxfun(seq(0, 24 * max_time, 0.1)/24, 
-                             gen_temp(i, 10, max_time, bt = 12))
-})
-
-# delta value of 1 - so just the infected mosquitoes
-
-index_all <- expand.grid(seq(1,length(g_temps)), seq(1, (length(c_temps)+1)))
-index_temp_ <- index_all[, 1]
-index_EIP_ <- index_all[, 2]
- 
-out <- bind_rows(mapply(function(index_temp, 
-                index_EIP, 
-                state = c(U = (1 - 1)*1, E = c(1*1, rep(0, 47-1)),  I = 0),
-                t = seq(0, 70, 0.1)){
-   params <- c(mu = 0.1, shape = 47, index_EIP = index_EIP, index_temp = index_temp)
-    return(out_mc <- as.data.frame(ode(y = state, times = t, func = model_4_ht,
-                               parms = params)) %>% rowwise() %>%
-     mutate(M = U + sum(c_across("E1":paste0("E",params[["shape"]]))) + I,
-            s_prev = I / M,
-            index_temp = index_temp,
-            index_EIP = index_EIP))
-}, index_temp_, index_EIP_, SIMPLIFY = FALSE))
-
-c_temps_i <- c(Inf, c_temps)
-out$m_EIP <- c_temps_i[out$index_EIP]
-out$temp <- g_temps[out$index_temp]
-
-png(file = "report/DTR_simulations_sensitivity.png", height = 750, width = 500)
-plot_grid(
-  ggplot(data = m_EIP_all, aes(x = temp, y = 47/EIP)) +
-  geom_line(size = 1.25) + theme_bw() + facet_wrap(~m_EIP, nrow = 3) +
-  theme(text = element_text(size = 15)) +
-  xlab("Temperature (°C)") + ylab("Parasite development rate (shape / EIP)"),
-  
-  plot_grid(NULL,
-  ggplot(data = out %>% mutate(m_EIP = ifelse(is.infinite(m_EIP), NA, m_EIP)), 
-       aes(x = time, y = s_prev, col = m_EIP, group = factor(m_EIP))) +
-  theme_bw() + theme(text = element_text(size = 15)) +
-  geom_line(size = 0.75) +
-  coord_cartesian(xlim = c(0, 30)) +
-  ylab("Sporozoite prevalence") +
-  xlab("Days post infection") + scale_y_continuous(labels = scales::percent) +
-  scale_colour_gradient(low = "#56B4E9", high = "#E69F00", na.value = "black",
-                        name = ""), NULL, rel_heights = c(0.1, 0.75, 0.1), nrow = 3),
- nrow = 2, labels = c("A", "B")
-)
-dev.off()
-
-
+# #################################################
+# ### running the model for higher temperatures ###
+# #################################################
+# 
+# # EIP models with different cutoff
+# c_temps <- seq(35, 38)
+# m_EIP_all <- bind_rows(sapply(c(Inf, c_temps), 
+#                  function(c_temp){
+#                    t <- seq(15, 45, 0.01)
+#                    EIP <- data.frame("temp" = t,
+#                                      "EIP" = EIP_fun[[2]](t), # to get the mean EIP
+#                                      "m_EIP" = rep(c_temp, length(t)))
+#                    EIP[which(t > c_temp), "EIP"] <- Inf
+#                    return(EIP)
+#                    }, 
+#                  simplify = FALSE))
+# png(file = "report/cutoff_sensitivity_PDF.png", height = 500, width = 850)
+# ggplot(data = m_EIP_all, aes(x = temp, y = 47/EIP)) +
+#   geom_line(size = 1.25) + theme_bw() + facet_wrap(~m_EIP) +
+#   theme(text = element_text(size = 15)) +
+#   xlab("Temperature (°C)") + ylab("Parasite development rate (shape / EIP)")
+# dev.off()
+# 
+# # EIP functions
+# EIP_fun_l <- vector(mode = "list", length = length(c_temps) + 1)
+# EIP_fun_l[[1]] <- EIP_fun[[2]]
+# p <- data.frame("temp" = seq(15, 45, 0.01),
+#                 "EIP" = EIP_fun[[2]](seq(15, 45, 0.01)))
+# 
+# for(i in 1:length(c_temps)){
+#   place <- p[which(p$temp <= c_temps[i]),]
+#   EIP_fun_l[[i+1]] <- approxfun(place$temp, place$EIP, yleft = max(mean_EIP$`50%`), yright = Inf, method = "linear")
+# }
+# 
+# # temperature functions
+# g_temps <- c(32.5)
+# temp_fun_l <- lapply(g_temps, function(i){
+#   approxfun(seq(0, 24 * max_time, 0.1)/24, 
+#                              gen_temp(i, 10, max_time, bt = 12))
+# })
+# 
+# # delta value of 1 - so just the infected mosquitoes
+# 
+# index_all <- expand.grid(seq(1,length(g_temps)), seq(1, (length(c_temps)+1)))
+# index_temp_ <- index_all[, 1]
+# index_EIP_ <- index_all[, 2]
+#  
+# out <- bind_rows(mapply(function(index_temp, 
+#                 index_EIP, 
+#                 state = c(U = (1 - 1)*1, E = c(1*1, rep(0, 47-1)),  I = 0),
+#                 t = seq(0, 70, 0.1)){
+#    params <- c(mu = 0.1, shape = 47, index_EIP = index_EIP, index_temp = index_temp)
+#     return(out_mc <- as.data.frame(ode(y = state, times = t, func = model_4_ht,
+#                                parms = params)) %>% rowwise() %>%
+#      mutate(M = U + sum(c_across("E1":paste0("E",params[["shape"]]))) + I,
+#             s_prev = I / M,
+#             index_temp = index_temp,
+#             index_EIP = index_EIP))
+# }, index_temp_, index_EIP_, SIMPLIFY = FALSE))
+# 
+# c_temps_i <- c(Inf, c_temps)
+# out$m_EIP <- c_temps_i[out$index_EIP]
+# out$temp <- g_temps[out$index_temp]
+# 
+# png(file = "report/DTR_simulations_sensitivity.png", height = 750, width = 500)
+# plot_grid(
+#   ggplot(data = m_EIP_all, aes(x = temp, y = 47/EIP)) +
+#   geom_line(size = 1.25) + theme_bw() + facet_wrap(~m_EIP, nrow = 3) +
+#   theme(text = element_text(size = 15)) +
+#   xlab("Temperature (°C)") + ylab("Parasite development rate (shape / EIP)"),
+#   
+#   plot_grid(NULL,
+#   ggplot(data = out %>% mutate(m_EIP = ifelse(is.infinite(m_EIP), NA, m_EIP)), 
+#        aes(x = time, y = s_prev, col = m_EIP, group = factor(m_EIP))) +
+#   theme_bw() + theme(text = element_text(size = 15)) +
+#   geom_line(size = 0.75) +
+#   coord_cartesian(xlim = c(0, 30)) +
+#   ylab("Sporozoite prevalence") +
+#   xlab("Days post infection") + scale_y_continuous(labels = scales::percent) +
+#   scale_colour_gradient(low = "#56B4E9", high = "#E69F00", na.value = "black",
+#                         name = ""), NULL, rel_heights = c(0.1, 0.75, 0.1), nrow = 3),
+#  nrow = 2, labels = c("A", "B")
+# )
+# dev.off()

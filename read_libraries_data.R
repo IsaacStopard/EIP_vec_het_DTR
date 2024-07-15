@@ -50,7 +50,9 @@ EIP_index_all <- get_EIP(params_temp, scaled_temps_all, 10000)
 #saveRDS(mean_EIP, file = "data/mean_EIP.rds")
 mean_EIP <- readRDS(file = "data/mean_EIP.rds")
 
-### EIP function
+####################
+### EIP function ###
+####################
 # assumes a linear interpolation for missing values
 # separate EIP functions for the posterior quantiles - different mean values
 EIP_fun <- vector(mode = "list", length = 3)
