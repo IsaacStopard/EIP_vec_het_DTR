@@ -1,6 +1,6 @@
 # DTR impact within standard membrane feeding assays 
 # Author: Isaac J Stopard
-# Version: 1.0.0 
+# Version: 1.0
 # Last updated: 06/08/2021
 # Notes: 
 rm(list = ls())
