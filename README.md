@@ -1,6 +1,6 @@
 # Modelling the effects of diurnal temperature variation on malaria infection dynamics in mosquitoes.
 
-## Authors: Isaac J Stopard, Thomas S Churcher & Ben Lambert
+## Authors: Isaac J. Stopard, Antoine Sanou, Eunho Suh, Lauren J. Cator, Matthew B. Thomas, W. Moussa Guelbéogo, N'Falé Sagnon, Ben Lambert & Thomas S. Churcher 
 
 This GitHub repository provides the code for the paper. We ran the model using R version 4.2.1.
 
