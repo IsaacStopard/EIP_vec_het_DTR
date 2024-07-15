@@ -1,14 +1,13 @@
 # Comparison of the Erlang distribution variance to the EIP PDF variances (with the same means) across a range of temperatures
 # Author: Isaac J Stopard
-# Version: 0.01 
-# Last updated: 14/06/2021
+# Version: 1.0
+# Last updated: 15/07/2024
 # Notes: 
 
 rm(list = ls())
-library(deSolve); library(tidyverse); library(zipfR); library(GoFKernel); library(ggnewscale); library(cowplot)
-library(lubridate); library(zoo); library(doBy); library(pROC)
 
 source(file = "utils/functions_temp_only.R"); source(file = "utils/model_functions.R"); source(file = "utils/data_functions.R"); source(file = "utils/vector_comp_functions.R");
+source(file = "read_libraries_data.R")
 
 #################
 ### functions ###
@@ -17,36 +16,18 @@ source(file = "utils/functions_temp_only.R"); source(file = "utils/model_functio
 # calculates the variance of an Erlang distribution with a different mean value (in this case the same as EIP50)
 
 get_var <- function(comp, temp, params = params_temp){
-  rate <- comp / gen_quantiles(na.omit(get_EIP_mean(params, temps = (temp - 23.06936) / 4.361642, 10000)$EIP_mean), temps = temp)$median
+  rate <- comp / gen_quantiles(na.omit(get_EIP_mean(params, temps = (temp - mean_temp_g) / sd_temp_g, 10000)$EIP_mean), temps = temp)$median
   return(comp / rate^2)
 }
-
-
-###########
-### EIP ###
-###########
-
-# getting the EIP values
-fit <- readRDS(file = "data/fit_mSOS_temp_only_f2_f3.rds")
-fit_ <- rstan::extract(fit)
 
 #################################
 ### temperature dependent EIP ###
 #################################
-# for all temperatures
-temps <- seq(17, 30, 0.01)
-scaled_temps <- (temps - 23.06936) / 4.361642 # scaling so on same scale as parameter fits
-
 e_temps <- c(17, 18, 19,
                20, 21, 23, 25,
                27, 28, 29, 30)
 
-scaled_e_temps <- (e_temps - 23.06936) / 4.361642
-
-# getting the EIP value
-params_temp <- rstan::extract(fit)
-
-EIP_index <- get_EIP(params_temp, scaled_temps, 10000)
+scaled_e_temps <- (e_temps - mean_temp_g) / sd_temp_g
 
 ### finding the number of compartments that give a similar variance to the observed data
 # for each temperature and iteration this calculates mean and variance of the EIP PDF
@@ -79,13 +60,6 @@ colnames(plot_v_df)[2] <- "v"
 ##### running for the SMFA model #####
 ######################################
 
-# calculating the mean EIP
-index <- seq(1, length(temps))
-mean_EIP <- as.data.frame(t(sapply(index, calc_mean_EIP, EIP_index = EIP_index)))
-mean_EIP$temp <- temps
-#saveRDS(mean_EIP, file = "data/mean_EIP.rds")
-mean_EIP <- readRDS(file = "data/mean_EIP.rds")
-
 ##### delta values
 
 delta_df <- vector(mode = "list", length = length(scaled_e_temps))
@@ -97,14 +71,6 @@ for(i in 1:length(delta_df)){
 
 delta_df <- bind_rows(delta_df)
 colnames(delta_df) <- c("temp", "scaled_temp", "mean", "median", "lower", "upper")
-
-### EIP function
-# assumes a linear interpolation for missing values
-# separate EIP functions for the posterior quantiles - different mean values
-EIP_fun <- vector(mode = "list", length = 3)
-EIP_fun[[1]] <- approxfun(mean_EIP$temp, mean_EIP$`2.5%`, yleft = max(mean_EIP$`2.5%`), yright = min(mean_EIP$`2.5%`))
-EIP_fun[[2]] <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`), yright = min(mean_EIP$`50%`)) # extrapolating beyond
-EIP_fun[[3]] <- approxfun(mean_EIP$temp, mean_EIP$`97.5%`, yleft = max(mean_EIP$`97.5%`), yright = min(mean_EIP$`97.5%`))
 
 # loading in the data from the constant temperature SMFAs
 s_data_C <- read.csv(file = "data/processed/ES_new_constant_temp_spz_processed.csv") %>% 

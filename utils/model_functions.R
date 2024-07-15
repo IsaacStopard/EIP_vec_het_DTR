@@ -1,7 +1,7 @@
 # Model functions for the sensitivity analysis of the impact of EIP (mean and variance) 
 # and seasonality on sporozoite prevalence
 # Author: Isaac J Stopard
-# Version: 0.01 
+# Version: 1.0 
 # Last updated: 14/06/2021
 # Notes: 
 

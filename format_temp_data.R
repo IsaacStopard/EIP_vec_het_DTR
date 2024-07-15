@@ -1,6 +1,6 @@
 # script to wrangle and interpolate all the temperature data
 # Author: Isaac J Stopard
-# Version: 0.01 
+# Version: 1.0
 # Notes: 
 
 rm(list = ls())

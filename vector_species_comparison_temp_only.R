@@ -1,9 +1,8 @@
 # Description: R script to compare the Anopheles stephensi and Anopheles gambiae EIP PDFs
-# Version: 0.1
-# Date: 27/07/2022
+# Version: 1.0
+# Date: 15/07/2024
 
 rm(list = ls())
-library(tidyverse); library(rstan); library(shinystan); library(cowplot); library(zipfR); library(truncnorm);library(ggpmisc);
 
 #################
 ### functions ###
@@ -11,13 +10,11 @@ library(tidyverse); library(rstan); library(shinystan); library(cowplot); librar
 
 source(file = "utils/functions_temp_only.R")
 source(file = "utils/vector_comp_functions.R")
+source(file = "read_libraries_data.R")
 
 ############
 ### fits ###
 ############
-
-fit_gambiae <- readRDS("data/fit_mSOS_temp_only_f2_f3.rds")
-fit_stephensi <- readRDS("data/hierarchical_mSOS_all_temperature_model_fit")
 
 # number of iterations used to fit the gambiae data
 iterations <- 5500
@@ -27,13 +24,6 @@ chains <- 4
 ###########
 ### EIP ###
 ###########
-
-# for scaling the parameters to the relevant data scaling
-mean_temp_g <- 23.06936
-sd_temp_g <- 4.361642
-
-mean_temp_s <- 27.9032
-sd_temp_s <- 3.471223
 
 # temperature to simulate the EIP PDF
 temps_s <- seq(21, 34, 0.1)
