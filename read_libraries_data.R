@@ -24,3 +24,10 @@ scaled_temps_all <- (temps_all - mean_temp) / sd_temp # scaling so on same scale
 scaled_temps <- (temps - mean_temp) / sd_temp
 # getting the EIP value
 params_temp <- rstan::extract(fit)
+
+# separate EIP functions for the posterior quantiles - different mean values
+# assumes a linear interpolation for values between simulated values
+EIP_fun <- vector(mode = "list", length = 3)
+EIP_fun[[1]] <- approxfun(mean_EIP$temp, mean_EIP$`2.5%`, yleft = max(mean_EIP$`2.5%`), yright = min(mean_EIP$`2.5%`))
+EIP_fun[[2]] <- approxfun(mean_EIP$temp, mean_EIP$`50%`, yleft = max(mean_EIP$`50%`), yright = min(mean_EIP$`50%`)) # extrapolating beyond
+EIP_fun[[3]] <- approxfun(mean_EIP$temp, mean_EIP$`97.5%`, yleft = max(mean_EIP$`97.5%`), yright = min(mean_EIP$`97.5%`))

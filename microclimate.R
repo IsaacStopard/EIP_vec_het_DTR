@@ -1,6 +1,6 @@
 rm(list = ls())
 
-source(file = "utils/data_functions.R"); source(file = "utils/model_functions.R")
+source(file = "utils/data_functions.R"); source(file = "utils/model_functions.R"); source(file = "read_libraries_data.R")
 
 ######################################################
 ##### mosquito biting time from the Burkina Faso #####
@@ -129,12 +129,12 @@ temp_plot_df$name <- factor(temp_plot_df$name, levels = c("Hourly", "Daily", "Mo
 
 temp_plot <- ggplot(data = temp_plot_df,
        aes(x = f_date, y = Temp, col = Location, group = interaction(Location, name))) +
-  geom_line(aes(size = name, linetype = name), alpha = 1) +
+  geom_line(aes(linewidth = name, linetype = name), alpha = 1) +
   scale_linetype_manual(values = c(1, 2)) +
   # geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp"), se = FALSE, 
   #             linewidth = 1.3) +
   theme_bw() + theme(text = element_text(size = 18)) +
-  scale_size_manual(values = c(0.18, 1)) +
+  scale_linewidth_manual(values = c(0.18, 1)) +
   #geom_smooth(formula = y ~ x, se = FALSE, method = "gam", alpha = 0.25, size = 0.75) +
   xlab("Date") +
   ylab("Temperature (°C)") +
@@ -215,48 +215,6 @@ for(i in 1:nrow(u_f)){
         out_m[[i]] <- out
       }
     
-    
-  #c_ <- temp_data[[u_f[i,"index"][[1]]]]
-  
-  #s_time <- u_f[i, "s_time"]
-  
-  #ind_start <- which(c_$Hour == s_time & 
-  #                     as.Date(c_$f_date) == u_f[i, "date"][[1]])
-  
-  
-    
-    #ind <- seq(ind_start, ind_start + 480, 1)
-    
-    #temps <- round(c_[ind, "Temp"], digits = 2)
-    
-    #times <- seq(0, length(ind)-1)/24 # must be in 
-    
-    #temp_fun[[i]] <- approxfun(times, temps)
-    
-    # out_m[[i]] <- as.data.frame(ode(y = state, times = times, func = model_4, parms = c(params, "index" = as.integer(i), EIP_CI = 2))) %>% rowwise() %>%
-    #   mutate(M = U + sum(c_across("E1":paste0("E",params[["shape"]]))) + I,
-    #          s_prev = I / M,
-    #          s_date = u_f[i, "date"][[1]],
-    #          Location = u_t[u_f[i, "index"][[1]], "Location"],
-    #          Hut = u_t[u_f[i, "index"][[1]], "Hut"],
-    #          Site = u_t[u_f[i, "index"][[1]], "Site"])
-    
-    # out_l[[i]] <- as.data.frame(ode(y = state, times = times, func = model_4, parms = c(params, "index" = as.integer(i), EIP_CI = 1))) %>% rowwise() %>%
-    #   mutate(M = U + sum(c_across("E1":paste0("E",params[["shape"]]))) + I,
-    #          s_prev = I / M,
-    #          s_date = u_f[i, "date"][[1]],
-    #          Location = u_t[u_f[i, "index"][[1]], "Location"],
-    #          Hut = u_t[u_f[i, "index"][[1]], "Hut"],
-    #          Site = u_t[u_f[i, "index"][[1]], "Site"])
-    # 
-    # out_u[[i]] <- as.data.frame(ode(y = state, times = times, func = model_4, parms = c(params, "index" = as.integer(i), EIP_CI = 3))) %>% rowwise() %>%
-    #   mutate(M = U + sum(c_across("E1":paste0("E",params[["shape"]]))) + I,
-    #          s_prev = I / M,
-    #          s_date = u_f[i, "date"][[1]],
-    #          Location = u_t[u_f[i, "index"][[1]], "Location"],
-    #          Hut = u_t[u_f[i, "index"][[1]], "Hut"],
-    #          Site = u_t[u_f[i, "index"][[1]], "Site"])
-    
     rm(list = c("start_hour", "ind", "start_time", "times", "out"))
   } else{
     out_m[[i]] <- NA
@@ -264,7 +222,7 @@ for(i in 1:nrow(u_f)){
   }
 }
 
-saveRDS(out_m, file = "results/DTR_season_model_outputs_m_r.rds")
+#saveRDS(out_m, file = "results/DTR_season_model_outputs_m_r.rds")
 
 out_m <- readRDS(file = "results/DTR_season_model_outputs_m_r.rds")
 
