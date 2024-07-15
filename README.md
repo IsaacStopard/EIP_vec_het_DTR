@@ -10,7 +10,7 @@ This GitHub repository provides the code for the paper. We ran the model using R
 
 :one: *read_libraries_data.R* - script to source commonly used data and load packages.
 
-​:two: *vector_species_comparison_temp_only.R* - script to compare the extrinsic incubation period (EIP) and human-to-mosquito transmission probability (HMTP) estimates. Generates Figure 2.
+:two: *vector_species_comparison_temp_only.R* - script to compare the extrinsic incubation period (EIP) and human-to-mosquito transmission probability (HMTP) estimates. Generates Figure 2.
 
 :three: *variance_comparison.R* - script to estimate the Erlang distribution shape parameter.
 
