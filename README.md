@@ -22,13 +22,17 @@ This GitHub repository provides the code for the paper. We ran the model using R
 
 :seven: *microclimate.R* - script to predict the EIP and HMTP in Tiefora, Burkina Faso, using the best fitting model.
 
-:eight: *read_bt_data.R* - script to read and format the biting time data.
+:eight: *spz_prev.R* - script to fit the generalised additive models to the previously published human biting rate data.
 
-:nine: *spz_prev.R - script to fit the generalised additive models to the previously published human biting rate data.
+:nine: *EIR_fit.R* - script to fit the malaria transmission model to the sporozoite prevalence data from Tiefora.
 
-:ten: *EIR_fit.R* - script to fit the malaria transmission model to the sporozoite prevalence data from Tiefora.
+#### helper scripts
 
-:eleven: *data_functions.R & model_functions.R* - helper functions.
+:one: *read_bt_data.R* - script to read and format the biting time data.
+
+:two: *data_functions.R*
+
+:three: *model_functions.R*
 
 ### Notes
 
