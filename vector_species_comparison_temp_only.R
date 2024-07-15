@@ -10,7 +10,6 @@ library(tidyverse); library(rstan); library(shinystan); library(cowplot); librar
 #################
 
 source(file = "utils/functions_temp_only.R")
-#source(file = "utils/plotting_functions.R")
 source(file = "utils/vector_comp_functions.R")
 
 ############
@@ -54,7 +53,7 @@ EIP_q_df <- rbind(cbind(gen_quantiles(EIP_index_g$EIP_10, temps_g), data.frame("
                  cbind(gen_quantiles(EIP_index_s$EIP_50, temps_s), data.frame("EIP" = rep("EIP[50]", length(temps_s)), "vector" = rep("A. stephensi", length(temps_s)))),
                  cbind(gen_quantiles(EIP_index_s$EIP_90, temps_s), data.frame("EIP" = rep("EIP[90]", length(temps_s)), "vector" = rep("A. stephensi", length(temps_s)))))
 
-
+# function to calculate the EIP whilst accounting for uncertainty in the model fits
 calc_EIP_v <- function(EIP_index, temps, n_iter){
   
   set.seed(12345)
@@ -102,7 +101,7 @@ calc_EIP_v <- function(EIP_index, temps, n_iter){
  return(out)   
 }
 
-EIP_plot_g <- calc_EIP_v(EIP_index = EIP_index_g, )
+EIP_plot_g <- calc_EIP_v(EIP_index = EIP_index_g, temps = temps_g, n_iter = 10000)
 EIP_plot_s <- calc_EIP_v(EIP_index = EIP_index_s, temps = temps_s, n_iter = 12000)
 saveRDS(EIP_plot_g, file = "EIP_gambiae.rds")      
 saveRDS(EIP_plot_s, file = "EIP_stephensi.rds")      
@@ -178,7 +177,7 @@ HMTP_plot <- ggplot(data = HMTP_df, aes(x = temp, y = median, ymin = lower, ymax
 ############################
 
 # gambiae data
-g_s_data <- read.csv(file = "vector_fits/data/ES_new_constant_temp_spz_processed.csv") %>% mutate(vector_species = "gambiae",
+g_s_data <- read.csv(file = "data/processed/ES_new_constant_temp_spz_processed.csv") %>% mutate(vector_species = "gambiae",
                                                                                                         gametocytemia = round(gametocytemia, digits = 5),
                                                                                                         ref = "Eunho_Suh")
 g_s_data <- g_s_data[,c(2:ncol(g_s_data))]
@@ -194,14 +193,10 @@ g_s_data_in <- generate_prevalence_temp(g_s_data)
 PPD_times_g <- readRDS(file = "data/PPD_times_g")
 length_ppd_times <- length(PPD_times_g)
 
-iterations <- 5500
-warmup <- 3000
-chains <- 4
-
 g_fits <- run_prop_ppd_df(fit_gambiae, "pooled", "S_prevalence_ppd", length_ppd_times, PPD_times_g, unique_temp = sort(unique(g_s_data_in$temp)))
 
 # stephensi data
-stephensi_data <- read.csv("vector_fits/data/mSOS_all_parasite_data.csv") %>% subset(DTR == 0) %>% 
+stephensi_data <- read.csv("data/processed/mSOS_all_parasite_data.csv") %>% subset(DTR == 0) %>% 
   mutate(gametocytemia = ifelse(ref == "Shapiro_L_Thomas" | ref == "Murdock_Thomas" | ref == "Shapiro_Thomas", 0.08, NA))
 
 stephensi_s_data <- subset(stephensi_data, lifestage == "gland-spz")
@@ -242,22 +237,6 @@ fits_plot_df <- bind_rows(lapply(seq(1, nrow(m_days)), function(i, fits_df, m_da
 fits_df = fits_df,
 m_days = m_days))
 
-fit_plot <- ggplot(data = fits_plot_df %>% 
-                     mutate(temp_label = paste0(temp, "°C")), aes(x = DPI, y = median, ymin = lower, ymax = upper, group = vector_species)) +
-  geom_pointrange(data = s_data %>% 
-                    mutate(temp_label = paste0(temp, "°C")), 
-                  aes(x = DPI, y = prevalence, ymin = lower, ymax = upper, 
-                      fill = vector_species), alpha = 0.75, shape = 21, col = "grey30") +
-  geom_ribbon(alpha = 0.325, aes(fill = vector_species)) +
-  geom_line(aes(col = vector_species), linewidth = 1) +
-  theme_bw() + theme(text = element_text(size = 15)) +
-  facet_wrap(~temp_label) +
-  scale_colour_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
-  scale_fill_manual(values = c("#56B4E9", "#E69F00"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
-  ylab("Sporozoite prevalence") +
-  scale_y_continuous(labels = scales::percent, breaks = seq(0, 0.75, 0.25)) +
-  xlab("Days post infection")
-
 fit_plot_lim <- ggplot(data = fits_plot_df %>% subset(temp %in% c(21, 27, 30)) %>% 
                      mutate(temp_label = paste0(temp, "°C")), aes(x = DPI, y = median, ymin = lower, ymax = upper, group = vector_species)) +
   geom_pointrange(data = s_data %>% subset(temp %in% c(21, 27, 30)) %>% 
@@ -274,120 +253,15 @@ fit_plot_lim <- ggplot(data = fits_plot_df %>% subset(temp %in% c(21, 27, 30)) %
   scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, 0.2)) +
   xlab("Days post infection")
 
-png(file = "results/figures/vec_fit_plot.png", height = 450, width = 700)
-fit_plot
-dev.off()
-
-###########################
-### EIP PDF differences ###
-###########################
-
-# pooled model
-p_s <- rstan::extract(fit_stephensi)
-p_g <- rstan::extract(fit_gambiae)
-
-pr_g_s <- lapply(seq(21, 30, 0.2),
-                run_pr_val,
-                p_s = p_s,
-                p_g = p_g,
-                scaled_temps_s = scaled_temps_s,
-                temps_s = temps_s,
-                scaled_temps_g = scaled_temps_g,
-                temps_g = temps_g)
-
-saveRDS(pr_g_s, file = "data/prob_EIP_ga_st.rds")
-pr_g_s <- readRDS(file = "data/prob_EIP_ga_st.rds")
-pr_g_s_df <- bind_rows(pr_g_s) %>% mutate(temp = seq(21, 30, 0.2))
-
-pr_g_s_plot <- ggplot(data = pr_g_s_df) +
-  geom_hline(yintercept = 0.5, linetype = 2, size = 1) +
-  geom_ribbon(aes(x = temp, ymin = lower, ymax = upper), fill = "grey70", alpha = 0.575) +
-  geom_line(aes(x = temp, y = median), linewidth = 1) +
-  theme_bw() +
-  theme(text = element_text(size = 20)) + 
-  scale_x_continuous(breaks = seq(20, 30, 2)) +
-  xlab("Temperature (°C)") +
-  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))  +
-  ylab(expression(italic(p(EIP[g] > EIP[s]))))
-
-
-png(file = "results/figures/pr_g_s_plot.png", height = 400, width = 500)
-pr_g_s_plot
-dev.off()
-
-png(file = "results/figures/vector_plot.png", height = 570, width = 750)
-# plot_grid(
-#   fit_plot,
-#   plot_grid(
-#     EIP_plot + theme(legend.position = "none"),
-#     pr_g_s_plot + theme(legend.position = "none"), 
-#     ncol = 2, labels = c("B", "C")
-#   ),
-#   nrow = 2,
-#   labels = c("A", ""),
-#   rel_heights = c(1, 0.7)
-# )
-
+png(file = "results/figures/vector_plot.png", height = 450, width = 700)
 plot_grid(
-  fit_plot_lim + theme(legend.position = "none"),
-  plot_grid(EIP_plot + theme(legend.position = "none"), 
-            HMTP_plot + theme(legend.position = "none"),
-            get_legend(EIP_plot),
-            ncol = 3, rel_widths = c(1, 1, 0.2985),
-            labels = c("B", "C")
-            ),
-          nrow = 2,
-          labels = c("A", ""),
-          rel_heights = c(1, 1.25))
-  
-dev.off()
+ fit_plot_lim,
+ plot_grid(
+   EIP_plot, HMTP_plot, nrow = 1, labels = c("B", "C")
+ ),
+ nrow = 2, labels = c("A",""),
+ rel_heights = c(0.35, 0.5)
+)
 
-#########################
-### plotting the PDFs ###
-#########################
-t <- seq(0, 40, 0.1)
-n_t <- length(t)
-temps_PDF <- seq(21, 30, 3)
-
-PDFs_df <- bind_rows(lapply(temps_PDF, function(x){
-  return(rbind(calc_PDF(get_EIP_params(scaled_temps_g[which(temps_g == x)], "gambiae", p_g), t_ = t) %>% mutate(species = "A. gambiae"),
-        calc_PDF(get_EIP_params(scaled_temps_s[which(temps_s == x)], "stephensi", p_s), t_ = t) %>% mutate(species = "A. stephensi")) %>% 
-    mutate(temp = x))}
-  )
-  )
-rownames(PDFs_df) <- NULL
-
-EIP_q_df_g <- subset(EIP_q_df, temp %in% temps_PDF)
-
-EIP_q_df_g[,"dens"] <- PDFs_df[match(interaction(round(EIP_q_df_g$median, digits = 1), EIP_q_df_g$temp, EIP_q_df_g$vector), interaction(round(PDFs_df$t, digits = 1), PDFs_df$temp, PDFs_df$species)), "median"]
-
-EIP_q_df_g %>% spread(key = posterior, value = EIP_value)
-
-EIP_10 <- subset(EIP_q_df, EIP == "EIP[10]")
-EIP_90 <- subset(EIP_q_df, EIP == "EIP[90]")
-PDFs_df[,"EIP_10"] <- round(EIP_10[match(interaction(PDFs_df$species, PDFs_df$temp), interaction(EIP_10$vector, EIP_10$temp)),"median"], digits = 1)
-PDFs_df[,"EIP_90"] <- round(EIP_90[match(interaction(PDFs_df$species, PDFs_df$temp), interaction(EIP_90$vector, EIP_90$temp)),"median"], digits = 1)
-
-
-PDF_plot <- ggplot(data = PDFs_df, aes(x = t, y = median)) +
-  geom_ribbon(aes(ymin = lower, ymax = upper, group = species), alpha = 0.4, fill = "grey70") + 
-  geom_ribbon(data = PDFs_df %>% mutate(t = ifelse(t<EIP_10 | t>EIP_90, NA, t)) %>% na.omit(), 
-              aes(ymin = 0, ymax = median, x = t, fill = species), inherit.aes=FALSE, alpha = 0.4) +
-  facet_wrap(~ temp) + 
-  theme_bw() + 
-  theme(text = element_text(size = 15)) +
-  scale_colour_manual(values = c( "#E69F00", "#56B4E9"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
-  scale_fill_manual(values = c("#E69F00", "#56B4E9"), labels = c(parse(text="italic('A. gambiae')"), parse(text="italic('A. stephensi')")), name = "") +
-  xlab("EIP (days)") + ylab("Density") +
-  geom_segment(data = subset(EIP_q_df_g, EIP == "EIP[50]"), 
-               aes(x = median, xend = median, y = 0, yend = dens, col = vector), size = 0.9) +
-  geom_line(aes(col = species), size = 1.1) 
-
-png(file = "results/figures/PDF_plot.png", height = 725, width = 700)  
-plot_grid(PDF_plot,
-          plot_grid(pr_g_s_plot, NULL, rel_widths = c(1, 0.1875), nrow = 1),
-          rel_heights = c(2, 1.5),
-          nrow = 2,
-          labels = c("A", "B"))
 dev.off()
 

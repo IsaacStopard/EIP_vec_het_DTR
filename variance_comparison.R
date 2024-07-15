@@ -196,7 +196,6 @@ round(scaled_brier(s_data_C$presence,
          s_data_C$mSOS), digits = 3)
 
 # ROC curves
-
 get_roc <- function(plot_df, i, dates, species){
   b <- get_pred_act(plot_df = plot_df, i = i, dates = dates, species = species)
   return(roc(b$y, b$predicted))

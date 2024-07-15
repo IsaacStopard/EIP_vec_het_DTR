@@ -22,7 +22,7 @@ EIP_90 <- gen_quantiles(EIP_index$EIP_90, temps_all)
 
 # calculating the mean EIP
 index <- seq(1, length(temps_all))
-mean_EIP <- as.data.frame(t(sapply(index, calc_mean_EIP, EIP_index = EIP_index)))
+mean_EIP <- as.data.frame(t(sapply(index[1:10], calc_mean_EIP, EIP_index = EIP_index)))
 mean_EIP$temp <- temps_all
 #saveRDS(mean_EIP, file = "data/mean_EIP.rds")
 mean_EIP <- readRDS(file = "data/mean_EIP.rds")

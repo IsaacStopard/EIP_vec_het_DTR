@@ -568,23 +568,6 @@ spz_plot <- ggplot() +
   geom_line(data = pred_vals[[12]], aes(x = date, y = z, group = factor(year), col = "Constant"), linewidth = 1.25) +
   theme(legend.position = c(0.15, 0.85), legend.box = "horizontal")
 
-# EIR_plot <- ggplot() +
-#   xlab("Date") +
-#   ylab("EIR per person per day") +
-#   geom_ribbon(data = spz_data$pred_EIR_day, aes(x = Date, ymin = lower, ymax = upper), alpha = 0.1) +
-#   geom_point(data = spz_data$raw, aes(x = Date, y = tot_p, group = factor(year), shape = train), size = 4, alpha = 0.7) +
-#   geom_line(data = spz_data$pred_EIR_day, aes(x = Date, y = EIR, col = "GAM"), linewidth = 1.25) +
-#   theme_bw() + theme(text = element_text(size = 18),
-#                      legend.text = element_text(size = 10),
-#                      legend.title = element_text(size = 12)) +
-#   scale_colour_manual(name = "Model", values = c("#0072B2", "#009E73", "#E69F00", "#000000")) +
-#   scale_shape_manual(name = "Data", values = c(16, 15)) +
-#   #scale_fill_manual(name = "year", values = c("#000000", "#0072B2", "#009E73")) +
-#   coord_cartesian(xlim = as.POSIXct(c("01/01/2016", "01/01/2019"), format = "%d/%m/%Y")) +
-#   geom_line(data = pred_vals[[10]], aes(x = date, y = EIR, group = factor(year), col = "DTR-dependent"), linewidth = 1.25) +
-#   geom_line(data = pred_vals[[11]], aes(x = date, y = EIR, col = "DTR-independent"), linewidth = 1.25) +
-#   geom_line(data = pred_vals[[12]], aes(x = date, y = EIR, group = factor(year), col = "Constant"), linewidth = 1.25) 
-
 png(file = "results/figures/sample_spz_m_EIR.png", width = 800, height = 800)
 plot_grid(
     mos_plot,

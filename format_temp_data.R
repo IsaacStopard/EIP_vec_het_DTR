@@ -1,3 +1,8 @@
+# script to wrangle and interpolate all the temperature data
+# Author: Isaac J Stopard
+# Version: 0.01 
+# Notes: 
+
 rm(list = ls())
 
 library(deSolve); library(tidyverse); library(zipfR); library(GoFKernel); library(ggnewscale)
