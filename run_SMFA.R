@@ -16,6 +16,7 @@ source(file = "read_libraries_data.R")
 params_temp <- rstan::extract(fit)
 
 EIP_index <- get_EIP(params_temp, scaled_temps_all, 10000)
+
 EIP_10 <- gen_quantiles(EIP_index$EIP_10, temps_all)
 EIP_50 <- gen_quantiles(EIP_index$EIP_50, temps_all)
 EIP_90 <- gen_quantiles(EIP_index$EIP_90, temps_all)
